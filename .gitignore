@@ -1,0 +1,3 @@
+dist/
+*.png.tmp
+node_modules/
