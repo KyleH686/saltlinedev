@@ -174,6 +174,59 @@
       ultra: { px: 2e6, msaa: 2 },
     };
   for (let k in Pr) (Object.assign(Pr[k], SL_TIER[k] || SL_TIER.high), SL_MOBILE && Object.assign(Pr[k], SL_PHONE[k] || {}));
+  // ---- maps (Nov 2026) ----
+  // The map is chosen before anything is built (title screen picker -> saved -> page reloads), because the
+  // sun, sky, sea and nav grid are all read once at boot. Each map can re-point those shared settings here.
+  var SL_MAPS = {
+      saltline: {
+        name: "Berth 4",
+        tag: "B4",
+        unit: "Port Authority Breach Unit",
+        place: "Saltline Terminal \xB7 05:42",
+        card: "Saltline Terminal \xB7 Berth 4 \xB7 05:42",
+        cardSub: "Port Authority Breach Unit \u2014 one breacher, no backup",
+        premise: "The port\u2019s security net has gone feral. Cut its three uplinks. Reach the boat.",
+        debrief: "Berth 4",
+        exit: "boat",
+        exitLabel: "Boat",
+      },
+      drywell: {
+        name: "Dry Well",
+        tag: "S9",
+        unit: "Field Recovery Unit",
+        place: "Kessler Basin \xB7 17:10",
+        card: "Kessler Basin \xB7 Pump Station 9 \xB7 17:10",
+        cardSub: "Field Recovery Unit \u2014 one breacher, no backup",
+        premise: "A dead oil lease, and its guard machines never got the stand-down. Cut the three uplinks. Reach the truck.",
+        debrief: "Pump Station 9",
+        exit: "truck",
+        exitLabel: "Truck",
+        dry: !0,
+        radio: {
+          intro: "Breacher, this is Control. Station 9 still thinks it is at war. Cut its three uplinks \u2014 derrick, pump house, stacks.",
+          contact: "It has seen you. Gulls fly, Hounds walk. Put them down.",
+          cut: ["One relay dark. It felt that \u2014 machines inbound.", "Two dark. It is throwing everything it has left at you."],
+          all: "All three dark. The truck is running at the west gate. Go.",
+          low: "You are hit hard. Get behind steel and breathe.",
+          done: "Breacher is rolling. Station 9 is dark. Good work.",
+        },
+      },
+    },
+    SL_MAP = (() => {
+      let k = "";
+      try {
+        k = new URLSearchParams(location.search).get("map") || JSON.parse(localStorage.getItem("saltline.settings.v1") || "{}").map || "";
+      } catch {}
+      return SL_MAPS[k] ? k : "saltline";
+    })(),
+    SL_M = SL_MAPS[SL_MAP];
+  if (SL_M.dry) {
+    // late-afternoon desert: high warm sun, blue zenith, dust-coloured horizon, no sea, no rain
+    (Mn.dir.set(0.52, 0.62, 0.42).normalize(), Mn.color.setRGB(1, 0.86, 0.66), (Mn.intensity = 11));
+    (en.zenith.setRGB(0.11, 0.24, 0.46), en.horizon.setRGB(1, 0.74, 0.46), en.horizonAway.setRGB(0.5, 0.56, 0.62), en.fog.setRGB(0.74, 0.62, 0.47));
+    ((oi.quayX = 1e6), (oi.seaY = -60));
+    for (let k in Pr) Pr[k].rain = 0;
+  }
   function zy(i) {
     if (i && Pr[i]) return { ...Pr[i] };
     if (
@@ -800,7 +853,7 @@ vec3 horizonColor(vec3 d){
 // SALTLINE_SKY
 precision highp float;
 varying vec3 vDir;
-uniform float uTime, uEnv, uFlash;
+uniform float uTime, uEnv, uFlash, uDry;
 uniform vec3 uFlashDir;
 ${Ug}
 ${Ng}
@@ -869,6 +922,15 @@ void main(){
   vec3 scudC = mix(vec3(0.10, 0.11, 0.14), uHor * 1.5, pow(ts, 3.0)) + uSunCol * pow(s, 24.0) * 2.0;
   col = mix(col, scudC, scud);
 
+  if (uDry > 0.5) {
+    // desert: deep blue overhead, bleached toward a dusty horizon, a few high streaks of cirrus
+    vec3 dc = mix(hc, uZen * 1.15, smoothstep(0.0, 0.5, h));
+    dc = mix(dc, uZen * 0.8, smoothstep(0.45, 1.0, h));
+    dc += uSunCol * vec3(1.0, 0.9, 0.75) * (pow(s, 8.0) * 0.18 + pow(s, 64.0) * 0.5 + pow(s, 600.0) * 2.0 + pow(s, 6000.0) * 12.0);
+    float ci = smoothstep(0.52, 0.86, fbm3(q * vec2(0.3, 1.5) + 17.0)) * smoothstep(0.06, 0.3, h) * 0.5;
+    dc = mix(dc, vec3(1.0, 0.95, 0.88) * (0.9 + 0.8 * pow(s, 4.0)), ci);
+    col = dc; cov = ci * 0.4; scud = 0.0;
+  }
   // sun disk (not in the environment capture: the directional light is the sun there)
   float veil = (1.0 - cov * 0.92) * (1.0 - scud * 0.7);
   float disk = smoothstep(0.999905, 0.999955, mu);
@@ -894,6 +956,7 @@ void main(){ vDir = position; vec4 p = projectionMatrix * vec4(mat3(viewMatrix) 
       uTime: { value: 0 },
       uEnv: { value: 0 },
       uFlash: { value: 0 },
+      uDry: { value: SL_M.dry ? 1 : 0 },
       uFlashDir: { value: new W(-0.5, 0.5, -0.7).normalize() },
       uSunDir: { value: Mn.dir.clone() },
       uZen: { value: en.zenith.clone() },
@@ -2742,7 +2805,7 @@ ${fe}`,
                   (0.55 + 0.45 * Math.sin(w.t * 47) * Math.sin(w.t * 13 + 1)) *
                   0.35
                 : 0),
-            (u.material.uniforms.uFlash.value = Math.max(0, w.value)),
+            (u.material.uniforms.uFlash.value = SL_M.dry ? 0 : Math.max(0, w.value)),
             C());
           for (let ne of H)
             try {
@@ -15959,6 +16022,842 @@ float metalnessFactor = metalness * slORM.b;
       i.decal("no_entry", 0.7, t + 0.34, 1.5, a + 3.3, "x+"),
       i.decal("arrow", 2.2, -30.5, 0.006, 6, "y+", 0));
   }
+  // ======================================================================
+  //  Map 2: Dry Well (Pump Station 9). A small walled oil lease in the desert:
+  //  a climbable derrick in the middle, tank farm, pump house, container
+  //  stacks, a working pumpjack, pipe runs for cover, and a truck at the gate.
+  // ======================================================================
+  function slFinishLevel(i, e, t, relays) {
+    t.staticRoot.updateMatrixWorld(!0);
+    let l = [];
+    t.staticRoot.traverse((z) => {
+      z.userData && z.userData.noMerge && !(z.parent && dR(z.parent, t.staticRoot)) && l.push(z);
+    });
+    for (let z of l) t.dynRoot.attach(z);
+    let c = new Set();
+    t.staticRoot.traverse((z) => {
+      z.isMesh && !Array.isArray(z.material) && c.add(z.material);
+    });
+    let u = new Map();
+    for (let z of c)
+      if (!(!z.isMeshStandardMaterial || z.vertexColors || z.transparent || !z.name || !(i.mats.names || []).includes(z.name)))
+        try {
+          let H = z.userData && z.userData.interior ? { interior: !0 } : {};
+          if (i.mats.get(z.name, H) !== z) continue;
+          let O = i.mats.get(z.name, { ...H, vertexColors: !0 });
+          O !== z && c.has(O) && u.set(z, O);
+        } catch {}
+    t.staticRoot.traverse((z) => {
+      if (!z.isMesh || Array.isArray(z.material)) return;
+      let H = u.get(z.material);
+      H && (z.material = H);
+      let O = !z.material.transparent && !z.material.isMeshBasicMaterial;
+      ((z.castShadow = O), (z.receiveShadow = !z.material.isMeshBasicMaterial));
+    });
+    let h = { count: 0, update() {} };
+    try {
+      h = rb(t.staticRoot);
+    } catch (z) {
+      console.error("[level] label atlas failed", z);
+    }
+    let f = By(t.staticRoot);
+    ((f.name = "level-merged"), e.add(f), e.add(t.dynRoot));
+    for (let z of relays) {
+      for (let H = z.children.length - 1; H >= 0; H--) z.remove(z.children[H]);
+      t.dynRoot.add(z);
+    }
+    let p = 0;
+    f.traverse((z) => {
+      if (z.isMesh) {
+        let H = z.geometry;
+        p += (H.index ? H.index.count : H.attributes.position.count) / 3;
+      }
+    });
+    return { merged: f, labels: h, tris: p };
+  }
+  async function slDryWell(i) {
+    let e = new wt();
+    ((e.name = "level"), i.scene.add(e));
+    let t = ob(i),
+      P = t.place,
+      HP = Math.PI / 2;
+    // ---------- helpers ----------
+    let deck = (x0, z0, x1, z1, y) => {
+        (t.slab("steel_worn", x0, y - 0.09, z0, x1, y, z1), t.col(x0, y - 0.09, z0, x1, y, z1, "metal"), t.metalRects.push([x0, z0, x1, z1]));
+      },
+      rail = (x0, z0, x1, z1, y) => {
+        let len = Math.hypot(x1 - x0, z1 - z0),
+          n = Math.max(1, Math.round(len / 1.5));
+        for (let h of [0.55, 1.05]) t.rod("steel_galv", [x0, y + h, z0], [x1, y + h, z1], 0.022);
+        for (let k = 0; k <= n; k++) {
+          let u = k / n;
+          t.rod("steel_galv", [x0 + (x1 - x0) * u, y, z0 + (z1 - z0) * u], [x0 + (x1 - x0) * u, y + 1.05, z0 + (z1 - z0) * u], 0.022);
+        }
+        t.col(Math.min(x0, x1) - 0.04, y, Math.min(z0, z1) - 0.04, Math.max(x0, x1) + 0.04, y + 1.1, Math.max(z0, z1) + 0.04, "metal", { playerOnly: !0 });
+      },
+      pipe = (pts, y = 0.72, r = 0.32, mat = "steel_rust") => {
+        for (let k = 0; k < pts.length - 1; k++) {
+          let [ax, az] = pts[k],
+            [bx, bz] = pts[k + 1],
+            len = Math.hypot(bx - ax, bz - az),
+            alongX = Math.abs(bx - ax) > Math.abs(bz - az);
+          t.cyl(mat, r, len + r, (ax + bx) / 2, y, (az + bz) / 2, { axis: alongX ? "x" : "z", seg: 16 });
+          t.col(Math.min(ax, bx) - (alongX ? 0 : r), 0.1, Math.min(az, bz) - (alongX ? r : 0), Math.max(ax, bx) + (alongX ? 0 : r), y + r, Math.max(az, bz) + (alongX ? r : 0), "metal");
+          // flanges and concrete sleepers
+          let n = Math.max(1, Math.round(len / 2.8));
+          for (let q = 0; q <= n; q++) {
+            let u = n ? q / n : 0,
+              x = ax + (bx - ax) * u,
+              z = az + (bz - az) * u;
+            t.box("concrete_dirty", alongX ? 0.45 : 0.9, y - r, alongX ? 0.9 : 0.45, x, (y - r) / 2, z, { bevel: 0.02 });
+            q > 0 && q < n && t.cyl("steel_dark", r + 0.07, 0.09, x, y, z, { axis: alongX ? "x" : "z", seg: 16 });
+          }
+          // elbow ball at each joint
+          k > 0 && t.add(new lt.SphereGeometry(r * 1.06, 14, 10), mat, { p: [ax, y, az] });
+        }
+      },
+      fence = (c, u, h, f, seed) => {
+        let d = Math.hypot(h - c, f - u),
+          v = Math.max(1, Math.round(d / 3.35)),
+          g = d / (v * 3),
+          x = Math.abs(h - c) > Math.abs(f - u);
+        for (let y = 0; y < v; y++) {
+          let b = (y + 0.5) / v,
+            m = P("fence_panel", c + (h - c) * b, u + (f - u) * b, x ? 0 : HP, { seed: seed + y, posts: y === v - 1 ? "both" : "left" }, 0, { noCol: !0 });
+          m.scale.x = g;
+        }
+        (t.col(Math.min(c, h) - 0.05, 0, Math.min(u, f) - 0.05, Math.max(c, h) + 0.05, 2.4, Math.max(u, f) + 0.05, "metal"),
+          t.col(Math.min(c, h) - 0.3, 0, Math.min(u, f) - 0.3, Math.max(c, h) + 0.3, 9, Math.max(u, f) + 0.3, "metal", { playerOnly: !0 }));
+      },
+      tank = (x, z, r, hgt, seed) => {
+        t.cyl("paint_white", r, hgt, x, hgt / 2, z, { seg: 30 });
+        t.cyl("paint_white", r, 0.5, x, hgt + 0.25, z, { rTop: r * 0.25, seg: 30 });
+        t.cyl("steel_rust", r + 0.03, 0.22, x, 0.11, z, { seg: 30 });
+        t.cyl("paint_orange", r + 0.012, 0.5, x, hgt * 0.62, z, { seg: 30, open: !0 });
+        t.cyl("concrete_dirty", r + 0.35, 0.08, x, 0.04, z, { seg: 30, cast: !1 });
+        // octagon of colliders
+        let a = r * 0.92,
+          b = r * 0.38,
+          c = r * 0.68;
+        (t.col(x - a, 0, z - b, x + a, hgt, z + b, "metal"), t.col(x - b, 0, z - a, x + b, hgt, z + a, "metal"), t.col(x - c, 0, z - c, x + c, hgt, z + c, "metal"));
+        // caged ladder and top rail
+        let lx = x + r + 0.08;
+        for (let s of [-0.22, 0.22]) t.rod("steel_galv", [lx, 0.1, z + s], [lx, hgt + 1, z + s], 0.02);
+        for (let y = 0.4; y < hgt + 0.9; y += 0.32) t.rod("steel_galv", [lx, y, z - 0.22], [lx, y, z + 0.22], 0.014);
+        for (let k = 0; k < 14; k++) {
+          let a0 = (k / 14) * Math.PI * 2,
+            a1 = ((k + 1) / 14) * Math.PI * 2,
+            rr = r * 0.82;
+          t.rod("steel_galv", [x + Math.cos(a0) * rr, hgt + 0.55 + 0.4, z + Math.sin(a0) * rr], [x + Math.cos(a1) * rr, hgt + 0.95, z + Math.sin(a1) * rr], 0.018);
+          t.rod("steel_galv", [x + Math.cos(a0) * rr, hgt + 0.3, z + Math.sin(a0) * rr], [x + Math.cos(a0) * rr, hgt + 0.95, z + Math.sin(a0) * rr], 0.018);
+        }
+        t.label("0" + seed, 0.9, x - r * 0.72, hgt * 0.62, z + r * 0.72 + 0.05, "z+", { color: "black", font: "stencil", distress: 0.5 });
+      },
+      wall = (x0, z0, x1, z1, y0, y1, mat = "concrete_painted") => {
+        (t.slab(mat, x0, y0, z0, x1, y1, z1), t.col(x0, y0, z0, x1, y1, z1, "concrete"));
+      };
+    // ---------- ground pads ----------
+    (t.slab("concrete", -5.2, 0, -5.2, 5.4, 0.05, 5.4, { cast: !1 }),
+      t.slab("concrete_dirty", -19, 0, -19.4, -3.8, 0.04, -9.8, { cast: !1 }),
+      t.slab("concrete", 7.4, 0, -17.6, 17.6, 0.05, -9.2, { cast: !1 }),
+      t.slab("concrete_dirty", 6, 0, 8, 19.5, 0.04, 19.5, { cast: !1 }),
+      t.slab("asphalt", -22, 0, 3, -12, 0.035, 9.4, { cast: !1 }));
+    // ---------- the derrick ----------
+    {
+      let L = [2.6, 5.2, 7.8];
+      // legs to the top deck, then the tapering mast to the crown
+      for (let sx of [-3, 3])
+        for (let sz of [-3, 3]) {
+          (t.box("steel_worn", 0.28, 7.8, 0.28, sx, 3.9, sz, { bevel: 0.02 }),
+            t.col(sx - 0.16, 0, sz - 0.16, sx + 0.16, 7.8, sz + 0.16, "metal"),
+            t.box("concrete", 0.9, 0.3, 0.9, sx, 0.15, sz, { bevel: 0.03 }),
+            t.rod("steel_worn", [sx, 7.8, sz], [sx * 0.2, 15.2, sz * 0.2], 0.09));
+        }
+      for (let y of [10.2, 12.7, 15.2]) {
+        let k = 1 - ((y - 7.8) / 7.4) * 0.8,
+          a = 3 * k;
+        for (let [x0, z0, x1, z1] of [
+          [-a, -a, a, -a],
+          [a, -a, a, a],
+          [a, a, -a, a],
+          [-a, a, -a, -a],
+        ])
+          t.rod("steel_worn", [x0, y, z0], [x1, y, z1], 0.05);
+      }
+      // mast bracing (no walkways up here, so every face is crossed)
+      for (let [ya, yb] of [
+        [10.2, 12.7],
+        [12.7, 15.2],
+      ]) {
+        let ka = 3 * (1 - ((ya - 7.8) / 7.4) * 0.8),
+          kb = 3 * (1 - ((yb - 7.8) / 7.4) * 0.8);
+        for (let s of [-1, 1]) {
+          (t.rod("steel_worn", [-ka, ya, s * ka], [kb, yb, s * kb], 0.03),
+            t.rod("steel_worn", [ka, ya, s * ka], [-kb, yb, s * kb], 0.03),
+            t.rod("steel_worn", [s * ka, ya, -ka], [s * kb, yb, kb], 0.03),
+            t.rod("steel_worn", [s * ka, ya, ka], [s * kb, yb, -kb], 0.03));
+        }
+      }
+      // crown block, beacon, drill string
+      (t.box("steel_dark", 1.5, 0.5, 1.5, 0, 15.45, 0, { bevel: 0.04 }),
+        t.box("paint_yellow", 0.9, 0.7, 0.5, 0, 14.6, 0, { bevel: 0.03 }),
+        t.cyl("steel_galv", 0.03, 1.6, 0, 16.5, 0, { seg: 6 }),
+        t.add(new lt.SphereGeometry(0.12, 10, 8), i.mats.emissive(16724787, 6), { p: [0, 17.35, 0], cast: !1 }),
+        t.cyl("steel_bare", 0.075, 11.9, 0, 8.55, 0, { seg: 10 }),
+        t.col(-0.1, 2.6, -0.1, 0.1, 9.2, 0.1, "metal"));
+      // lower bracing: west face all the way up, north face to the first two decks, east at ground level
+      for (let [ya, yb] of [
+        [0.3, 2.5],
+        [2.6, 5.1],
+        [5.2, 7.7],
+      ])
+        (t.rod("steel_worn", [-3, ya, -3], [-3, yb, 3], 0.035), t.rod("steel_worn", [-3, ya, 3], [-3, yb, -3], 0.035));
+      for (let [ya, yb] of [
+        [0.3, 2.5],
+        [2.6, 5.1],
+      ])
+        (t.rod("steel_worn", [-3, ya, -3], [3, yb, -3], 0.035), t.rod("steel_worn", [3, ya, -3], [-3, yb, -3], 0.035));
+      (t.rod("steel_worn", [3, 0.3, -3], [3, 2.5, 3], 0.035), t.rod("steel_worn", [3, 0.3, 3], [3, 2.5, -3], 0.035));
+      // ring beams under each deck
+      for (let y of L)
+        for (let [x0, z0, x1, z1] of [
+          [-3, -3, 3, -3],
+          [3, -3, 3, 3],
+          [3, 3, -3, 3],
+          [-3, 3, -3, -3],
+        ])
+          t.box("steel_worn", Math.abs(x1 - x0) + 0.2 || 0.2, 0.22, Math.abs(z1 - z0) + 0.2 || 0.2, (x0 + x1) / 2, y - 0.2, (z0 + z1) / 2);
+      // flights: south face up to deck 1, east face to deck 2, north face to deck 3
+      (t.stairs(0, 3.6, 0, 0, { seed: 31 }), t.stairs(3.6, 0, HP, L[0], { seed: 32 }), t.stairs(0, -3.6, Math.PI, L[1], { seed: 33 }));
+      // deck 1
+      (deck(-3, -3, 4.2, 3.1, L[0]),
+        deck(1.5, 3.1, 4.2, 4.2, L[0]),
+        rail(-3, -3, -3, 3.1, L[0]),
+        rail(-3, -3, 4.2, -3, L[0]),
+        rail(4.2, -3, 4.2, 4.2, L[0]),
+        rail(1.5, 4.2, 4.2, 4.2, L[0]),
+        rail(-3, 3.1, 0.9, 3.1, L[0]));
+      // deck 2
+      (deck(-3, -3.1, 3.1, 3.1, L[1]),
+        deck(1.5, -4.2, 3.1, -3.1, L[1]),
+        deck(3.1, -4.2, 4.2, -1.5, L[1]),
+        rail(-3, -3.1, -3, 3.1, L[1]),
+        rail(-3, 3.1, 3.1, 3.1, L[1]),
+        rail(3.1, -0.9, 3.1, 3.1, L[1]),
+        rail(4.2, -4.2, 4.2, -0.9, L[1]),
+        rail(-3, -3.1, 1.5, -3.1, L[1]),
+        rail(1.5, -4.2, 4.2, -4.2, L[1]));
+      // deck 3 (the top)
+      (deck(-3, -3.1, 3, 3, L[2]),
+        deck(-3, -4.2, -1.5, -3.1, L[2]),
+        rail(-3, -4.2, -3, 3, L[2]),
+        rail(-3, 3, 3, 3, L[2]),
+        rail(3, -3.1, 3, 3, L[2]),
+        rail(-0.9, -3.1, 3, -3.1, L[2]),
+        rail(-3, -4.2, -0.9, -4.2, L[2]));
+      // wellhead under the floor
+      (t.cyl("steel_dark", 0.55, 0.3, 0, 0.2, 0, { seg: 18 }),
+        t.cyl("paint_red", 0.24, 2.2, 0, 1.4, 0, { seg: 14 }),
+        t.cyl("paint_red", 0.16, 1.5, 0, 1.25, 0, { axis: "x", seg: 12 }),
+        t.cyl("paint_red", 0.16, 1.5, 0, 1.85, 0, { axis: "z", seg: 12 }),
+        t.cyl("steel_dark", 0.3, 0.07, 0.8, 1.25, 0, { axis: "x", seg: 14 }),
+        t.cyl("steel_dark", 0.3, 0.07, -0.8, 1.25, 0, { axis: "x", seg: 14 }),
+        t.cyl("steel_dark", 0.3, 0.07, 0, 1.85, 0.8, { axis: "z", seg: 14 }),
+        t.col(-0.6, 0, -0.6, 0.6, 2.5, 0.6, "metal"),
+        P("barrel", -2.1, -2, 0, { seed: 5, color: "red" }),
+        P("barrel", -2.1, -1.3, 0.4, { seed: 6, color: "red" }),
+        P("toolbox_cart", 2, -2.1, 0.2, { seed: 7 }),
+        P("crate_wood", 1.9, 1.9, 0.1, { seed: 8 }, L[0]),
+        P("sandbags", 0, 2.3, 0, { seed: 9 }, L[2]),
+        P("sandbags", -2.3, 0, HP, { seed: 10 }, L[2]),
+        P("crate_wood", 2.1, -2.1, 0.3, { seed: 11 }, L[1]),
+        t.label("STATION 9", 0.5, -2.4, 6.4, 3.07, "z+", { color: "white", font: "stencil", distress: 0.4 }));
+    }
+    let relayA = P("relay_node", -1.5, -1.6, 0, { seed: 1 }, 2.6);
+    // ---------- pump house (north-east) ----------
+    {
+      let x0 = 8,
+        x1 = 17,
+        z0 = -17,
+        z1 = -10,
+        hh = 3.2,
+        w = 0.3;
+      (wall(x0, z0, x1, z0 + w, 0, hh),
+        wall(x1 - w, z0, x1, z1, 0, hh),
+        wall(x0, z0, x0 + w, -14.6, 0, hh),
+        wall(x0, -12.4, x0 + w, z1, 0, hh),
+        wall(x0, -14.6, x0 + w, -12.4, 2.3, hh),
+        wall(x0, z1 - w, 11.7, z1, 0, hh),
+        wall(13.9, z1 - w, x1, z1, 0, hh),
+        wall(11.7, z1 - w, 13.9, z1, 2.3, hh),
+        t.slab("corrugated_roof", x0 - 0.45, hh, z0 - 0.45, x1 + 0.45, hh + 0.14, z1 + 0.45),
+        t.col(x0 - 0.45, hh, z0 - 0.45, x1 + 0.45, hh + 0.14, z1 + 0.45, "metal"),
+        t.slab("floor_epoxy", x0 + w, 0.05, z0 + w, x1 - w, 0.07, z1 - w, { cast: !1 }),
+        t.box("steel_dark", 0.08, 2.3, 0.12, x0 + 0.15, 1.15, -14.66),
+        t.box("steel_dark", 0.08, 2.3, 0.12, x0 + 0.15, 1.15, -12.34),
+        t.box("steel_dark", 0.12, 2.3, 0.08, 11.64, 1.15, z1 - 0.15),
+        t.box("steel_dark", 0.12, 2.3, 0.08, 13.96, 1.15, z1 - 0.15),
+        t.box(i.mats.emissive(16773328, 3.2), 1.6, 0.05, 0.14, 11, hh - 0.06, -13.5, { cast: !1 }),
+        t.box(i.mats.emissive(16773328, 3.2), 1.6, 0.05, 0.14, 14.5, hh - 0.06, -13.5, { cast: !1 }),
+        P("shelf_rack", 10.4, -16.05, 0, { seed: 12 }),
+        P("generator", 15.3, -11.2, 0, { seed: 13 }),
+        P("barrel", 8.9, -10.8, 0, { seed: 14, color: "blue" }),
+        P("gas_cylinders", 16.1, -16.2, HP, { seed: 15 }),
+        P("crate_stack", 12.6, -16, 0.05, { seed: 16 }),
+        t.label("PUMP STATION 9", 0.42, 9.85, 2.6, z1 + 0.012, "z+", { color: "black", font: "stencil", distress: 0.5 }),
+        t.decal("hazard_voltage", 0.6, 14.6, 1.6, z1 + 0.012, "z+"),
+        // outside: generator set, vent stack, stores
+        t.cyl("steel_galv", 0.22, 1.6, 15.6, hh + 0.9, -15.4, { seg: 12 }),
+        t.cyl("steel_galv", 0.3, 0.12, 15.6, hh + 1.75, -15.4, { seg: 12 }),
+        P("ibc_tote", 18.3, -11, 0.1, { seed: 17 }),
+        P("ibc_tote", 18.4, -12.3, -0.05, { seed: 18 }),
+        P("pallet_stack", 18.6, -14.6, 0.2, { seed: 19 }),
+        P("dumpster", 6.6, -15.6, HP, { seed: 20 }),
+        P("sandbags", 11, -8.6, 0.05, { seed: 21 }),
+        P("jersey_barrier", 14.6, -7.9, -0.08, { seed: 22 }));
+    }
+    let relayB = P("relay_node", 14.4, -14.6, -HP, { seed: 2 }, 0.07);
+    // ---------- tank farm (north-west) ----------
+    {
+      (tank(-14, -14.4, 2.7, 5.6, 1), tank(-7.6, -15.2, 2.2, 4.4, 2));
+      // bund wall with two ways in
+      let b = (x0, z0, x1, z1) => wall(x0, z0, x1, z1, 0, 0.55, "concrete_dirty");
+      (b(-18.8, -19.3, -4, -19.05),
+        b(-18.8, -19.3, -18.55, -10),
+        b(-4.25, -19.3, -4, -15.8),
+        b(-4.25, -13.9, -4, -10),
+        b(-18.8, -10.25, -12.6, -10),
+        b(-10.4, -10.25, -4, -10),
+        // manifold between the tanks
+        t.cyl("steel_rust", 0.16, 3.6, -10.9, 0.5, -14.8, { axis: "x", seg: 12 }),
+        t.cyl("paint_red", 0.26, 0.5, -10.9, 0.55, -14.8, { seg: 12 }),
+        t.cyl("steel_dark", 0.28, 0.05, -10.9, 1, -14.8, { seg: 14 }),
+        t.col(-12.6, 0, -15.05, -9.2, 0.75, -14.55, "metal"),
+        P("barrel", -16.9, -11, 0, { seed: 23, color: "yellow" }),
+        P("barrel", -16.2, -10.9, 0.5, { seed: 24 }),
+        P("sign_post", -11.5, -9.6, 0, { seed: 25, sign: "hazard_general" }),
+        // horizontal day tank on saddles by the west fence
+        t.cyl("paint_grey", 1.25, 5.4, -16.6, 1.85, -3.2, { axis: "z", seg: 24 }),
+        t.add(new lt.SphereGeometry(1.25, 20, 12), "paint_grey", { p: [-16.6, 1.85, -0.5] }).scale.set(1, 1, 0.45),
+        t.add(new lt.SphereGeometry(1.25, 20, 12), "paint_grey", { p: [-16.6, 1.85, -5.9] }).scale.set(1, 1, 0.45),
+        t.box("concrete", 2.2, 0.75, 0.5, -16.6, 0.37, -1.6, { bevel: 0.03 }),
+        t.box("concrete", 2.2, 0.75, 0.5, -16.6, 0.37, -4.8, { bevel: 0.03 }),
+        t.col(-17.75, 0, -6.3, -15.45, 3.1, -0.1, "metal"),
+        t.label("DIESEL", 0.55, -15.34, 1.95, -3.9, "x+", { color: "black", font: "stencil", distress: 0.55 }));
+    }
+    // ---------- container stacks (south-east) ----------
+    (t.stack(12.2, 10.4, [
+      [20, "red"],
+      [20, "blue"],
+    ]),
+      t.stack(16.6, 15, [[20, "yellow", { doors: 0.55 }]], HP),
+      t.stack(10.4, 17.4, [
+        [20, "green"],
+        [20, "white"],
+      ]),
+      t.stairs(7.2, 12.4, 0, 0, { seed: 36 }),
+      t.catwalk(10.2, 12.4, 0, 2.59, { seed: 34 }),
+      t.catwalk(13.2, 12.4, 0, 2.59, { seed: 35 }),
+      t.catwalk(14.2, 12.4, 0, 2.59, { seed: 135 }),
+      P("pallet_stack", 6.3, 17, 0.1, { seed: 37 }),
+      P("crate_stack", 14.7, 15.5, 0.06, { seed: 38 }),
+      P("tarp_cargo", 4.6, 18.6, 0.04, { seed: 39 }),
+      P("barrel", 14.9, 18.4, 0, { seed: 40, color: "blue" }),
+      P("tire_stack", 18.4, 10.6, 0, { seed: 41 }),
+      P("cable_reel", 18.2, 19, 0.6, { seed: 42 }),
+      P("sandbags", 16.6, 16.6, 0.02, { seed: 43 }, 2.59));
+    for (let x of [8.9, 11.7, 14.6]) for (let z of [11.86, 12.94]) t.rod("steel_galv", [x, 0, z], [x, 2.56, z], 0.035);
+    let relayC = P("relay_node", 12.9, 14.7, Math.PI, { seed: 3 }, 0);
+    // ---------- yard (south-west): pumpjack, pipe racks, plant ----------
+    let jack = slPumpjack(i, t, -13, 14.2);
+    (P("pipe_stack", -16.6, 18.4, 0.02, { seed: 44 }),
+      P("pipe_stack", -16.4, 19.9, -0.02, { seed: 45 }),
+      P("pipe_stack", -8.4, 19.2, 0.03, { seed: 46 }),
+      P("forklift", -6.2, 12.6, 2.1, { seed: 47, forksUp: 0.15 }),
+      P("pallet_stack", -4.6, 15.6, 0.3, { seed: 48 }),
+      P("tire_stack", -19.6, 15.4, 0, { seed: 49 }),
+      P("tire_stack", -19.7, 16.5, 0.5, { seed: 50 }),
+      P("dumpster", -20.3, 19.6, HP, { seed: 51 }),
+      P("cable_reel", -3.6, 19.6, 1.1, { seed: 52 }),
+      P("tarp_cargo", -11.4, 9.9, 0.05, { seed: 53 }),
+      P("barrel", -9.7, 10, 0, { seed: 54, color: "green" }),
+      P("jerry_can", -8.9, 10.2, 0.6, { seed: 55 }));
+    // ---------- cover in the open ground ----------
+    (P("jersey_barrier", -3.6, 12.2, 0.12, { seed: 56 }),
+      P("jersey_barrier", 3.9, 11.4, -0.1, { seed: 57 }),
+      P("sandbags", 0.6, 8.2, 0.04, { seed: 58 }),
+      P("jersey_barrier", 8.6, 2.6, HP + 0.06, { seed: 59 }),
+      P("sandbags", 9.4, -2.2, HP, { seed: 60 }),
+      P("crate_stack", 18.6, 2.4, 0.1, { seed: 61 }),
+      P("ibc_tote", 18.7, 3.7, -0.1, { seed: 62 }),
+      P("gas_cylinders", 19.9, -2.6, HP, { seed: 63 }),
+      P("pallet_stack", 17.4, -4.6, 0.3, { seed: 64 }),
+      P("jersey_barrier", -8.4, 2.4, HP - 0.05, { seed: 65 }),
+      P("sandbags", -9.2, -2.4, HP + 0.05, { seed: 66 }),
+      P("barrel", -9.1, 0.2, 0, { seed: 67 }),
+      P("crate_wood", 5.9, -2.2, 0.2, { seed: 68 }),
+      P("tire_stack", 2.9, -18.9, 0, { seed: 69 }),
+      P("jersey_barrier", 0.2, -15.6, 0.04, { seed: 70 }),
+      P("sandbags", -1.8, -11.8, 0.1, { seed: 71 }),
+      P("traffic_cone", -14.4, 2.6, 0, { seed: 72 }),
+      P("traffic_cone", -14.3, 9.7, 0, { seed: 73 }));
+    // ---------- pipe runs ----------
+    (pipe([
+      [-11.6, -7.2],
+      [-2.4, -7.2],
+      [-2.4, -4.6],
+    ]),
+      pipe([
+        [10, -9.4],
+        [10, -5.6],
+        [3, -5.6],
+      ]),
+      pipe([
+        [-10.2, 12.2],
+        [-10.2, 7.4],
+        [-4.4, 7.4],
+        [-4.4, 5.2],
+      ]),
+      // valve wheels
+      t.cyl("paint_red", 0.3, 0.05, -7, 1.22, -7.2, { seg: 14 }),
+      t.cyl("steel_dark", 0.04, 0.3, -7, 1.1, -7.2, { seg: 8 }),
+      t.cyl("paint_red", 0.3, 0.05, 6.4, 1.22, -5.6, { seg: 14 }),
+      t.cyl("steel_dark", 0.04, 0.3, 6.4, 1.1, -5.6, { seg: 8 }),
+      t.cyl("paint_red", 0.3, 0.05, -7.4, 1.22, 7.4, { seg: 14 }),
+      t.cyl("steel_dark", 0.04, 0.3, -7.4, 1.1, 7.4, { seg: 8 }));
+    // overhead pipe rack from the tank farm to the pump house
+    for (let x of [-3.4, 0.4, 4.2, 7.6]) {
+      for (let z of [-9.9, -8.7]) (t.box("steel_worn", 0.16, 4.3, 0.16, x, 2.15, z), t.col(x - 0.1, 0, z - 0.1, x + 0.1, 4.3, z + 0.1, "metal"), t.box("concrete", 0.5, 0.2, 0.5, x, 0.1, z));
+      t.box("steel_worn", 0.16, 0.2, 1.7, x, 4.35, -9.3);
+    }
+    (t.cyl("steel_rust", 0.17, 11.6, 2.1, 4.63, -9.6, { axis: "x", seg: 12 }),
+      t.cyl("paint_yellow", 0.13, 11.6, 2.1, 4.59, -9.05, { axis: "x", seg: 12 }),
+      t.rod("steel_rust", [-3.7, 4.63, -9.6], [-5.2, 4.2, -11.4], 0.17),
+      t.rod("steel_rust", [7.9, 4.63, -9.6], [8.6, 3.5, -10.2], 0.17));
+    // ---------- flare stack (north-east corner) ----------
+    (t.box("concrete", 1.6, 0.4, 1.6, 19.4, 0.2, -19.4, { bevel: 0.03 }),
+      t.cyl("steel_rust", 0.2, 11.6, 19.4, 6.2, -19.4, { seg: 12 }),
+      t.cyl("steel_dark", 0.34, 0.5, 19.4, 12.2, -19.4, { rTop: 0.26, seg: 12 }),
+      t.col(18.6, 0, -20.2, 20.2, 0.4, -18.6, "concrete"),
+      t.col(19.15, 0.4, -19.65, 19.65, 12.4, -19.15, "metal"),
+      t.rod("steel_galv", [19.4, 8.5, -19.4], [16.4, 0.05, -19.6], 0.012),
+      t.rod("steel_galv", [19.4, 8.5, -19.4], [19.6, 0.05, -16.4], 0.012));
+    // ---------- truck at the west gate ----------
+    let truck = slTruck(i, t, -16.4, 6.2);
+    // ---------- perimeter ----------
+    (fence(-22, -22, 22, -22, 100),
+      fence(22, -22, 22, 22, 200),
+      fence(-22, 22, -2.6, 22, 300),
+      fence(2.6, 22, 22, 22, 340),
+      fence(-22, -22, -22, 3, 400),
+      fence(-22, 9.4, -22, 22, 440),
+      t.col(-2.6, 0, 22.2, 2.6, 9, 22.8, "metal", { playerOnly: !0 }),
+      t.col(-22.8, 0, 3, -22.2, 9, 9.4, "metal", { playerOnly: !0 }),
+      P("gate_arm", -21.4, 6.2, HP, { seed: 74 }),
+      P("guard_booth", -19.8, 11.6, HP, { seed: 75 }),
+      P("bollard_post", -21.6, 3.3, 0, { seed: 76 }),
+      P("bollard_post", -21.6, 9.1, 0, { seed: 77 }),
+      P("sign_post", -20.9, 2.2, HP, { seed: 78, sign: "no_entry" }),
+      // the breach in the south fence: cut posts and a dropped panel
+      t.box("steel_galv", 0.07, 2.3, 0.07, -2.6, 1.15, 22),
+      t.box("steel_galv", 0.07, 2.3, 0.07, 2.6, 1.15, 22),
+      t.box("chainlink", 3, 0.012, 2.2, 0.8, 0.03, 23.4, { r: [0, 0.3, 0], cast: !1 }),
+      P("light_mast", 20.4, 20.4, 0, { seed: 79 }),
+      P("light_mast", -20.4, -20.6, 0, { seed: 80 }));
+    // ---------- finish: merge, collect, describe ----------
+    let fin = slFinishLevel(i, e, t, [relayA, relayB, relayC]);
+    try {
+      i.fx && i.fx.addEmitter && i.fx.addEmitter(mt(19.4, 12.5, -19.4), "fire");
+    } catch {}
+    let g = (x, z, zone) => ({ pos: mt(x, 0, z), zone, type: "ground" }),
+      a = (x, y, z, zone) => ({ pos: mt(x, y, z), zone, type: "air" }),
+      spawns = [
+        g(19.6, 20.2, "south"),
+        g(-19.4, 13.6, "south"),
+        g(6, 20.4, "south"),
+        g(-7, 20.6, "south"),
+        g(20.2, 7.4, "south"),
+        g(19.8, -6.4, "north"),
+        g(-20.4, -8.2, "north"),
+        g(3.4, -20.2, "north"),
+        g(-2.6, -20.4, "north"),
+        g(20.4, -0.6, "mid"),
+        g(-12.4, 0.6, "mid"),
+        a(27, 11, 27, "south"),
+        a(-27, 10, 26, "south"),
+        a(0, 13, 30, "south"),
+        a(30, 12, 2, "mid"),
+        a(-30, 11, -4, "mid"),
+        a(26, 12, -27, "north"),
+        a(-26, 11, -27, "north"),
+        a(2, 14, -30, "north"),
+      ],
+      cover = [
+        [-3.6, 13],
+        [3.9, 12.2],
+        [0.6, 9],
+        [8, 2.6],
+        [10.2, -2.2],
+        [-7.8, 2.4],
+        [-8.4, -2.4],
+        [-2.4, -8],
+        [-6, -8],
+        [6, -6.4],
+        [10.8, -7],
+        [-3.6, 6.6],
+        [-8, 8.2],
+        [-11, 8.2],
+        [8.6, 13.4],
+        [14.6, 13.8],
+        [6.6, 16.6],
+        [17.8, 3],
+        [16.6, -4.6],
+        [11, -7.8],
+        [6.6, -14.2],
+        [0.2, -14.8],
+        [-1.8, -11],
+        [-11.4, -9],
+        [-14.6, -1.4],
+        [-13.6, 16],
+        [-5.2, 13.6],
+        [-15.4, 8.4],
+        [-2, -2],
+        [2.2, 2.2],
+        [18.4, 12],
+        [3.4, -17.8],
+      ].map(([x, z]) => mt(x, 0, z)),
+      nav = i.physics.nav,
+      fix = (p) => {
+        if (!(!nav || !nav.isWalkable || p.y > 0.2 || nav.isWalkable(p.x, p.z)))
+          for (let r of [0.5, 1, 1.5, 2])
+            for (let k = 0; k < 8; k++) {
+              let x = p.x + Math.cos(k * 0.7854) * r,
+                z = p.z + Math.sin(k * 0.7854) * r;
+              if (nav.isWalkable(x, z)) return void ((p.x = x), (p.z = z));
+            }
+      };
+    (cover.forEach(fix), spawns.forEach((s) => s.type === "ground" && fix(s.pos)));
+    let warned = !1;
+    return {
+      root: e,
+      map: "drywell",
+      playerStart: { pos: mt(0, 0, 19.6), yaw: 0 },
+      objectives: [
+        { id: "relay_a", label: "Relay A — Derrick", zone: "mid", pos: mt(-1.5, 2.6, -1.6), object: relayA },
+        { id: "relay_b", label: "Relay B — Pump house", zone: "north", pos: mt(14.4, 0.07, -14.6), object: relayB },
+        { id: "relay_c", label: "Relay C — Stacks", zone: "south", pos: mt(12.9, 0, 14.7), object: relayC },
+      ],
+      extraction: { pos: mt(truck.door.x, 0, truck.door.z), radius: 2.5 },
+      enemySpawns: spawns,
+      zones: [
+        { name: "north", min: [-24, -24], max: [24, -4] },
+        { name: "mid", min: [-24, -4], max: [24, 6] },
+        { name: "south", min: [-24, 6], max: [24, 24] },
+      ],
+      interiorBoxes: [{ min: mt(8, 0, -17), max: mt(17, 3.2, -10) }],
+      cinematicPath: [
+        { pos: [0, 1.7, 27], look: [0, 4.5, 0] },
+        { pos: [10, 2.2, 20], look: [0, 5.5, 0] },
+        { pos: [19.5, 3, 7], look: [2, 6, -2] },
+        { pos: [18, 5, -7], look: [0, 6.5, 0] },
+        { pos: [5, 7, -19.5], look: [-2, 5.5, -2] },
+        { pos: [-10.5, 6.5, -20], look: [-3, 5, -3] },
+        { pos: [-20, 3.4, -7.5], look: [0, 6, 0] },
+        { pos: [-19.5, 2.4, 9], look: [0, 5.5, 1] },
+        { pos: [-9, 2, 19.5], look: [0, 5.5, 0] },
+        { pos: [-1, 1.8, 24], look: [0, 5, 0] },
+      ],
+      coverPoints: cover,
+      skylights: [],
+      shedLights: [],
+      vantage: { stairsFoot: mt(-1.8, 0, 3.6), roof: mt(0.8, 7.8, 1.2) },
+      stats: {
+        labelsAtlased: fin.labels.count,
+        containers: t.placed.filter((z) => z.name.startsWith("container")).length,
+        props: t.placed.length,
+        tris: Math.round(fin.tris),
+        meshes: fin.merged.children.length + pR(t.dynRoot),
+      },
+      placed: t.placed,
+      groundSurfaceAt(x, z) {
+        return t.isMetal(x, z) ? "metal" : Math.abs(x) < 5.3 && Math.abs(z) < 5.3 ? "concrete" : "dirt";
+      },
+      update(dt) {
+        fin.labels.update(dt);
+        for (let k = 0; k < t.updaters.length; k++)
+          try {
+            t.updaters[k](dt);
+          } catch (er) {
+            warned || ((warned = !0), console.error("[level] prop update threw", er));
+          }
+      },
+    };
+  }
+  // a flatbed pickup, nose to the gate
+  function slTruck(i, t, cx, cz) {
+    let b = (m, sx, sy, sz, x, y, z, o) => t.box(m, sx, sy, sz, cx + x, y, cz + z, o);
+    (b("steel_dark", 5.3, 0.22, 1.7, 0, 0.62, 0),
+      b("paint_white", 1.5, 0.75, 1.92, -2, 1.08, 0, { bevel: 0.06 }),
+      b("paint_white", 1.75, 0.95, 1.92, -0.45, 1.2, 0, { bevel: 0.05 }),
+      b("paint_white", 1.5, 0.7, 1.84, -0.4, 2, 0, { bevel: 0.1 }),
+      b("glass_dirty", 0.04, 0.52, 1.6, -1.17, 2, 0),
+      b("glass_dirty", 1.1, 0.5, 0.03, -0.4, 2.02, 0.925),
+      b("glass_dirty", 1.1, 0.5, 0.03, -0.4, 2.02, -0.925),
+      b("steel_dark", 2.6, 0.1, 1.94, 1.75, 0.8, 0),
+      b("paint_grey", 2.6, 0.5, 0.07, 1.75, 1.08, 0.94),
+      b("paint_grey", 2.6, 0.5, 0.07, 1.75, 1.08, -0.94),
+      b("paint_grey", 0.07, 0.5, 1.94, 3.02, 1.08, 0),
+      b("steel_dark", 0.12, 0.3, 2, -2.78, 0.62, 0, { bevel: 0.03 }),
+      b(i.mats.emissive(16774360, 4), 0.04, 0.14, 0.26, -2.76, 0.98, 0.72, { cast: !1 }),
+      b(i.mats.emissive(16774360, 4), 0.04, 0.14, 0.26, -2.76, 0.98, -0.72, { cast: !1 }),
+      b(i.mats.emissive(16716820, 3), 0.04, 0.12, 0.2, 3.07, 0.98, 0.8, { cast: !1 }),
+      b(i.mats.emissive(16716820, 3), 0.04, 0.12, 0.2, 3.07, 0.98, -0.8, { cast: !1 }));
+    for (let x of [-1.95, 1.7])
+      for (let z of [-0.86, 0.86]) (t.cyl("tire", 0.46, 0.3, cx + x, 0.46, cz + z, { axis: "z", seg: 18 }), t.cyl("steel_bare", 0.22, 0.32, cx + x, 0.46, cz + z, { axis: "z", seg: 12 }));
+    (t.place("crate_wood", cx + 1.3, cz + 0.2, 0.2, { seed: 91 }, 0.85, { noCol: !0 }),
+      t.place("jerry_can", cx + 2.4, cz - 0.5, 0.4, { seed: 92 }, 0.85, { noCol: !0 }),
+      t.col(cx - 2.85, 0, cz - 0.98, cx + 3.08, 1.4, cz + 0.98, "metal"),
+      t.col(cx - 1.3, 1.4, cz - 0.95, cx + 0.45, 2.36, cz + 0.95, "metal"));
+    return { door: { x: cx - 0.4, z: cz + 2.1 } };
+  }
+  // a nodding-donkey pumpjack that actually nods
+  function slPumpjack(i, t, px, pz) {
+    let T3 = lt,
+      g = new T3.Group();
+    ((g.name = "pumpjack"), (g.userData.noMerge = !0), g.position.set(px, 0, pz), t.dynRoot.add(g));
+    let mk = (geo, mat, p, parent = g) => {
+        let m = t.add(geo, mat, { parent, p });
+        return ((m.castShadow = !0), (m.receiveShadow = !0), m);
+      },
+      box = (m, sx, sy, sz, x, y, z, parent) => mk($e(sx, sy, sz), m, [x, y, z], parent);
+    // skid, gearbox, motor, samson post (static parts go into the merged level)
+    (t.box("steel_dark", 6.4, 0.22, 1.7, px, 0.11, pz),
+      t.box("paint_grey", 1.3, 1.1, 1.2, px - 1.7, 0.77, pz, { bevel: 0.04 }),
+      t.box("paint_yellow", 0.8, 0.6, 0.7, px - 2.75, 0.52, pz, { bevel: 0.04 }),
+      t.cyl("steel_dark", 0.3, 0.16, px - 2.75, 0.56, pz + 0.5, { axis: "z", seg: 14 }));
+    for (let s of [-0.55, 0.55]) (t.rod("paint_yellow", [px + 0.1, 0.2, pz + s], [px + 0.75, 3.55, pz + s * 0.3], 0.09), t.rod("paint_yellow", [px + 1.5, 0.2, pz + s], [px + 0.8, 3.55, pz + s * 0.3], 0.09));
+    (t.rod("paint_yellow", [px + 0.3, 1.6, pz - 0.45], [px + 1.25, 1.6, pz + 0.45], 0.04),
+      t.box("steel_dark", 0.5, 0.3, 0.9, px + 0.78, 3.62, pz),
+      // wellhead and stuffing box under the horsehead
+      t.cyl("steel_dark", 0.3, 0.18, px + 3.55, 0.3, pz, { seg: 14 }),
+      t.cyl("paint_red", 0.14, 0.9, px + 3.55, 0.75, pz, { seg: 12 }),
+      t.cyl("paint_red", 0.1, 0.7, px + 3.55, 0.8, pz, { axis: "z", seg: 10 }),
+      t.cyl("steel_bare", 0.025, 2.4, px + 3.55, 2.2, pz, { seg: 8 }),
+      t.col(px - 3.2, 0, pz - 0.85, px + 1.9, 1.35, pz + 0.85, "metal"),
+      t.col(px + 0.4, 1.35, pz - 0.5, px + 1.2, 3.8, pz + 0.5, "metal"),
+      t.col(px + 3.25, 0, pz - 0.35, px + 3.85, 1.25, pz + 0.35, "metal"));
+    // moving parts: the walking beam with its horsehead, the cranks and counterweights, the pitman arm
+    let beam = new T3.Group();
+    (beam.position.set(0.78, 3.86, 0), g.add(beam));
+    (box("paint_yellow", 5.6, 0.36, 0.3, 0.3, 0, 0, beam), box("paint_yellow", 0.55, 1.5, 0.34, 2.95, -0.45, 0, beam), box("steel_dark", 0.3, 0.3, 1, -2.45, -0.1, 0, beam));
+    let head = mk(new T3.CylinderGeometry(1.5, 1.5, 0.3, 14, 1, !1, -0.55, 1.1), "paint_yellow", [1.75, -0.2, 0], beam);
+    head.rotation.set(Math.PI / 2, 0, 0);
+    let crank = new T3.Group();
+    (crank.position.set(-1.7, 1.25, 0), g.add(crank));
+    for (let s of [-0.78, 0.78]) {
+      box("steel_dark", 1.9, 0.26, 0.12, 0.55, 0, s, crank);
+      let w = mk(new T3.CylinderGeometry(0.62, 0.62, 0.2, 18, 1, !1, 0, Math.PI), "steel_rust", [1.25, 0, s], crank);
+      w.rotation.set(Math.PI / 2, 0, 0);
+    }
+    mk(ot(0.09, 0.09, 1.9, 10), "steel_bare", [0, 0, 0], crank).rotation.set(Math.PI / 2, 0, 0);
+    let pit = [-0.78, 0.78].map((s) => mk(ot(0.045, 0.045, 1, 8), "steel_bare", [0, 0, s]));
+    let ang = 0.6,
+      a = new W(),
+      b = new W(),
+      up = new W(0, 1, 0),
+      d = new W();
+    function pose() {
+      let tilt = Math.sin(ang) * 0.2;
+      ((beam.rotation.z = tilt), (crank.rotation.z = ang));
+      // pitman: from the crank pin to the tail of the beam
+      for (let k = 0; k < 2; k++) {
+        let s = k ? 0.78 : -0.78;
+        (a.set(-1.7 + Math.cos(ang) * 0.8, 1.25 + Math.sin(ang) * 0.8, s), b.set(0.78 - Math.cos(tilt) * 2.45 + Math.sin(tilt) * 0.1, 3.86 - Math.sin(tilt) * 2.45 - Math.cos(tilt) * 0.1, s));
+        let m = pit[k];
+        (m.position.copy(a).add(b).multiplyScalar(0.5), d.copy(b).sub(a), m.scale.set(1, d.length(), 1), m.quaternion.setFromUnitVectors(up, d.normalize()));
+      }
+    }
+    (pose(),
+      t.updaters.push((dt) => {
+        ((ang += dt * 0.9), pose());
+      }));
+    return g;
+  }
+  // dry ground: one big sand plane, rippled and blotched; stands in for the port's wet apron and sea
+  async function slDryGround(i) {
+    let T3 = lt,
+      S = 512,
+      cv = document.createElement("canvas");
+    cv.width = cv.height = S;
+    let c = cv.getContext("2d"),
+      img = c.createImageData(S, S),
+      rnd = (() => {
+        let s = 9173;
+        return () => ((s = (s * 1664525 + 1013904223) >>> 0), s / 4294967296);
+      })(),
+      // tileable value noise
+      grid = (n) => {
+        let g = new Float32Array(n * n);
+        for (let k = 0; k < g.length; k++) g[k] = rnd();
+        return (u, v) => {
+          let x = u * n,
+            y = v * n,
+            x0 = Math.floor(x),
+            y0 = Math.floor(y),
+            fx = x - x0,
+            fy = y - y0,
+            sx = fx * fx * (3 - 2 * fx),
+            sy = fy * fy * (3 - 2 * fy),
+            p = (a, b) => g[(((b % n) + n) % n) * n + (((a % n) + n) % n)];
+          return (p(x0, y0) * (1 - sx) + p(x0 + 1, y0) * sx) * (1 - sy) + (p(x0, y0 + 1) * (1 - sx) + p(x0 + 1, y0 + 1) * sx) * sy;
+        };
+      },
+      n4 = grid(4),
+      n16 = grid(16),
+      n64 = grid(64),
+      hgt = new Float32Array(S * S);
+    for (let y = 0; y < S; y++)
+      for (let x = 0; x < S; x++) {
+        let u = x / S,
+          v = y / S,
+          warp = n4(u, v) * 6.283,
+          ripple = 0.5 + 0.5 * Math.sin((u * 26 + Math.sin(v * 6.283 * 2 + warp) * 0.35) * 6.283),
+          h = n16(u, v) * 0.45 + ripple * 0.3 + n64(u, v) * 0.25,
+          grain = rnd(),
+          k = 0.86 + h * 0.2 + (grain - 0.5) * 0.09,
+          o = (y * S + x) * 4;
+        hgt[y * S + x] = h;
+        ((img.data[o] = Math.min(255, 205 * k)), (img.data[o + 1] = Math.min(255, 165 * k)), (img.data[o + 2] = Math.min(255, 116 * k)), (img.data[o + 3] = 255));
+      }
+    c.putImageData(img, 0, 0);
+    let map = new T3.CanvasTexture(cv);
+    ((map.wrapS = map.wrapT = T3.RepeatWrapping), (map.colorSpace = T3.SRGBColorSpace), (map.anisotropy = 8));
+    // normal map from the height field
+    let nc = document.createElement("canvas");
+    nc.width = nc.height = S;
+    let nctx = nc.getContext("2d"),
+      nimg = nctx.createImageData(S, S);
+    for (let y = 0; y < S; y++)
+      for (let x = 0; x < S; x++) {
+        let hx = hgt[y * S + ((x + 1) % S)] - hgt[y * S + ((x + S - 1) % S)],
+          hy = hgt[((y + 1) % S) * S + x] - hgt[((y + S - 1) % S) * S + x],
+          nx = -hx * 5,
+          ny = -hy * 5,
+          l = Math.hypot(nx, ny, 1),
+          o = (y * S + x) * 4;
+        ((nimg.data[o] = (nx / l) * 127 + 128), (nimg.data[o + 1] = (ny / l) * 127 + 128), (nimg.data[o + 2] = (1 / l) * 127 + 128), (nimg.data[o + 3] = 255));
+      }
+    nctx.putImageData(nimg, 0, 0);
+    let nrm = new T3.CanvasTexture(nc);
+    ((nrm.wrapS = nrm.wrapT = T3.RepeatWrapping), (nrm.anisotropy = 4));
+    (map.repeat.set(70, 70), nrm.repeat.set(70, 70));
+    let mat = new T3.MeshStandardMaterial({ map, normalMap: nrm, roughness: 0.96, metalness: 0, envMapIntensity: 0.35 });
+    ((mat.name = "sl-sand"), mat.normalScale.set(0.9, 0.9));
+    let mesh = new T3.Mesh(new T3.PlaneGeometry(420, 420, 1, 1).rotateX(-Math.PI / 2), mat);
+    ((mesh.name = "sand"), (mesh.receiveShadow = !0), (mesh.castShadow = !1));
+    let root = new T3.Group();
+    ((root.name = "ground"), root.add(mesh), i.scene.add(root));
+    return {
+      root,
+      apron: mesh,
+      sand: mat,
+      uniforms: {},
+      puddleDepth: () => -1,
+      isPuddle: () => !1,
+      wetnessAt: () => 0,
+      seaHeight: () => -60,
+      setRain() {},
+      rainLevel: 0,
+      setReflections() {},
+      update() {},
+    };
+  }
+  // desert backdrop: a ring of dunes rising away from the fence, a few far buttes, distant derricks
+  async function slDryBackdrop(i) {
+    let T3 = lt,
+      root = new T3.Group();
+    root.name = "backdrop";
+    let sand = (i.ground && i.ground.sand) || new T3.MeshStandardMaterial({ color: 13214316, roughness: 1 }),
+      duneMat = sand.clone();
+    ((duneMat.vertexColors = !0), (duneMat.name = "sl-dunes"));
+    let h2 = (x, z) => {
+        let a = Math.sin(x * 0.021 + Math.sin(z * 0.017) * 1.7) * 0.5 + 0.5,
+          b = Math.sin(z * 0.034 + x * 0.011 + 2.1) * 0.5 + 0.5,
+          c = Math.sin((x + z) * 0.071 + Math.sin(x * 0.05) * 1.3) * 0.5 + 0.5;
+        return a * 0.55 + b * 0.3 + c * 0.15;
+      },
+      RINGS = 22,
+      SEG = 120,
+      pos = [],
+      col = [],
+      uv = [],
+      idx = [];
+    for (let r = 0; r <= RINGS; r++) {
+      let t = r / RINGS,
+        rad = 30 + Math.pow(t, 1.7) * 480;
+      for (let s = 0; s <= SEG; s++) {
+        let a = (s / SEG) * Math.PI * 2,
+          x = Math.cos(a) * rad,
+          z = Math.sin(a) * rad,
+          rise = Math.min(1, Math.max(0, (rad - 34) / 60)),
+          far = Math.min(1, Math.max(0, (rad - 150) / 250)),
+          y = rise * (h2(x, z) * 9 - 1.2) + far * (h2(x * 0.4 + 40, z * 0.4) * 34) - (1 - rise) * 0.02,
+          shade = 0.82 + h2(x * 1.7, z * 1.7) * 0.26;
+        (pos.push(x, y, z), col.push(shade, shade * 0.97, shade * 0.93), uv.push(x / 6, z / 6));
+      }
+    }
+    for (let r = 0; r < RINGS; r++)
+      for (let s = 0; s < SEG; s++) {
+        let a = r * (SEG + 1) + s,
+          b = a + SEG + 1;
+        idx.push(a, a + 1, b, b, a + 1, b + 1);
+      }
+    let geo = new T3.BufferGeometry();
+    (geo.setAttribute("position", new T3.Float32BufferAttribute(pos, 3)),
+      geo.setAttribute("color", new T3.Float32BufferAttribute(col, 3)),
+      geo.setAttribute("uv", new T3.Float32BufferAttribute(uv, 2)),
+      geo.setIndex(idx),
+      geo.computeVertexNormals());
+    let dunes = new T3.Mesh(geo, duneMat);
+    ((dunes.name = "dunes"), (dunes.receiveShadow = !1), (dunes.castShadow = !1), (dunes.frustumCulled = !1), root.add(dunes));
+    // buttes on the horizon
+    let rock = new T3.MeshStandardMaterial({ color: 10780797, roughness: 1, metalness: 0, flatShading: !1, envMapIntensity: 0.25 });
+    rock.name = "sl-rock";
+    for (let [a, d, w, hh] of [
+      [0.5, 430, 60, 44],
+      [1.35, 470, 95, 34],
+      [2.3, 410, 44, 52],
+      [3.3, 460, 110, 30],
+      [4.2, 440, 52, 46],
+      [5.3, 480, 80, 36],
+      [5.9, 400, 36, 40],
+    ]) {
+      let g = new T3.CylinderGeometry(w * 0.7, w, hh, 14, 4),
+        p = g.attributes.position;
+      for (let k = 0; k < p.count; k++) {
+        let j = Math.sin(k * 12.9898) * 43758.5453;
+        j -= Math.floor(j);
+        (p.setX(k, p.getX(k) * (0.88 + j * 0.24)), p.setZ(k, p.getZ(k) * (0.88 + ((j * 7.3) % 1) * 0.24)));
+      }
+      g.computeVertexNormals();
+      let m = new T3.Mesh(g, rock);
+      (m.position.set(Math.cos(a) * d, hh / 2 + 14, Math.sin(a) * d), (m.castShadow = !1), (m.receiveShadow = !1), root.add(m));
+    }
+    // other leases out in the basin: bare derricks and a second flare
+    let steel = new T3.MeshStandardMaterial({ color: 3355443, roughness: 0.8, metalness: 0.6 });
+    for (let [x, z, hh] of [
+      [95, -70, 26],
+      [-120, 40, 30],
+      [60, 130, 24],
+      [-70, -140, 28],
+    ]) {
+      let g = new T3.CylinderGeometry(0.5, 3.6, hh, 4, 6, !0),
+        m = new T3.Mesh(g, steel.clone());
+      ((m.material.wireframe = !0), m.position.set(x, hh / 2 + 4, z), (m.rotation.y = Math.PI / 4), (m.castShadow = !1), root.add(m));
+    }
+    i.scene.add(root);
+    return { root, dunes, update() {}, stats: { tris: idx.length / 3 } };
+  }
   async function C1(i) {
     let e = new wt();
     ((e.name = "level"), i.scene.add(e));
@@ -27757,6 +28656,7 @@ void main() {
         bang: 20 + s() * 25,
       };
     function Os(te, he) {
+      if (SL_M.dry) return;
       let pe = 1 - 0.7 * P;
       if ((bt.fog -= te) <= 0) {
         bt.fog = 40 + s() * 30;
@@ -28285,11 +29185,11 @@ void main() {
         (w.gain.value = me),
         (nn -= te) <= 0 && ((nn = 3 + s() * 6), (ut = 0.12 + s() * 0.88)),
         (pt += (ut - pt) * ye(0.5)),
-        Oe.rain.setGain(fe * (1 - 0.93 * P) * 0.95),
-        Oe.rainIn.setGain(fe * P * 0.95),
-        Oe.wind.setGain(fe * (0.3 + 0.7 * pt) * (1 - 0.65 * P) * 0.75),
+        Oe.rain.setGain(SL_M.dry ? 0 : fe * (1 - 0.93 * P) * 0.95),
+        Oe.rainIn.setGain(SL_M.dry ? 0 : fe * P * 0.95),
+        Oe.wind.setGain(fe * (0.3 + 0.7 * pt) * (1 - 0.65 * P) * (SL_M.dry ? 1.25 : 0.75)),
         Oe.wind.setPitch(0.9 + 0.25 * pt),
-        Oe.sea.setGain(fe * (1 - 0.5 * P) * 1),
+        Oe.sea.setGain(SL_M.dry ? 0 : fe * (1 - 0.5 * P) * 1),
         Oe.sea.setPos([33, -1, pi(re.z, -28, 26)]),
         !ue &&
           (ke || ee === "title" || ee === "complete") &&
@@ -37064,7 +37964,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
     return (R(), I);
   }
   var fM = "saltline.settings.v1",
-    XC = { quality: "auto", sens: 1, invertY: !1, volume: 0.8, fov: Pi.fov, difficulty: "breacher", fps: "max", showFps: !1, sprintMode: "hold", crouchMode: "hold", aimAssist: "on", diag: !1 },
+    XC = { quality: "auto", sens: 1, invertY: !1, volume: 0.8, fov: Pi.fov, difficulty: "breacher", fps: "max", showFps: !1, sprintMode: "hold", crouchMode: "hold", aimAssist: "on", diag: !1, map: "saltline" },
     dM = ["lite", "low", "medium", "high", "ultra"];
   function YC() {
     let i = { ...XC };
@@ -37086,7 +37986,8 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
         ["hold", "toggle", "auto"].includes(e.sprintMode) && (i.sprintMode = e.sprintMode),
         ["hold", "toggle"].includes(e.crouchMode) && (i.crouchMode = e.crouchMode),
         ["off", "on", "strong"].includes(e.aimAssist) && (i.aimAssist = e.aimAssist),
-        (i.diag = !!e.diag));
+        (i.diag = !!e.diag),
+        SL_MAPS[e.map] && (i.map = e.map));
     } catch {}
     return i;
   }
@@ -37136,9 +38037,10 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
 
     <section class="m-screen m-title" data-s="title" aria-label="Saltline">
       <div class="m-title-main">
-        <div class="m-eyebrow"><span class="m-tag">B4</span><span>Port Authority Breach Unit</span><span class="m-dim">Saltline Terminal \xB7 05:42</span></div>
+        <div class="m-eyebrow"><span class="m-tag">${SL_M.tag}</span><span>${SL_M.unit}</span><span class="m-dim">${SL_M.place}</span></div>
         <h1 class="m-word">SALTLINE</h1>
-        <p class="m-premise">The port\u2019s security net has gone feral. Cut its three uplinks. Reach the boat.</p>
+        <p class="m-premise">${SL_M.premise}</p>
+        <div class="m-diff m-map" role="group" aria-label="Map">${Object.keys(SL_MAPS).map((U) => `<button data-map="${U}" aria-pressed="${U === SL_MAP}">${SL_MAPS[U].name}</button>`).join("")}</div>
         <div class="m-diff" role="group" aria-label="Difficulty">${Object.keys(SL_DIFF).map((U) => `<button data-diff="${U}" aria-pressed="false">${SL_DIFF[U].name}</button>`).join("")}</div>
         <p class="m-best" data-f="best"></p>
         <p class="m-build">Build ${SL_BUILD}</p>
@@ -37176,7 +38078,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
     </section>
 
     <section class="m-screen m-card m-debrief" data-s="complete" aria-label="Debrief">
-      <div class="m-k">Berth 4 \xB7 Debrief \xB7 <span data-f="dname">Breacher</span></div>
+      <div class="m-k">${SL_M.debrief} \xB7 Debrief \xB7 <span data-f="dname">Breacher</span></div>
       <h2 class="m-h">Saltline is dark</h2>
       <div class="m-rating"><span>Rating</span><b data-f="rating">Clean</b></div>
       <dl class="m-stats">
@@ -37229,7 +38131,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
       </div>
     </div>
 
-    <div class="loc-card" aria-hidden="true"><i></i><b>Saltline Terminal \xB7 Berth 4 \xB7 05:42</b><span>Port Authority Breach Unit \u2014 one breacher, no backup</span></div>
+    <div class="loc-card" aria-hidden="true"><i></i><b>${SL_M.card}</b><span>${SL_M.cardSub}</span></div>
   `),
       t.appendChild(s));
     let o = (U) => s.querySelector(U),
@@ -37306,7 +38208,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
       for (let D of r("[data-diff]"))
         D.setAttribute("aria-pressed", String(D.dataset.diff === n.difficulty));
       {
-        let B = slLoadBest()[n.difficulty];
+        let B = slLoadBest()[slBestKey(n.difficulty)];
         c("best").textContent = B
           ? `${SL_DIFF[n.difficulty].name} best \u2014 ${O(B.time)} \xB7 ${B.rating}${B.intel ? ` \xB7 intel ${B.intel}/3` : ""}`
           : `${SL_DIFF[n.difficulty].name}: no clear yet`;
@@ -37407,6 +38309,21 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
       }
       if (T.dataset.act === "fpsshow") {
         (i.events.emit("ui:click", {}), (n.showFps = !n.showFps), slSetFps(n.fps, n.showFps), g(), Wf(n));
+        return;
+      }
+      if (T.dataset.map) {
+        if (T.dataset.map === SL_MAP) return;
+        (i.events.emit("ui:click", {}), (n.map = T.dataset.map), Wf(n));
+        for (let D of r("[data-map]")) D.setAttribute("aria-pressed", String(D.dataset.map === n.map));
+        c("best").textContent = "Loading " + SL_MAPS[n.map].name + "\u2026";
+        setTimeout(() => {
+          try {
+            let u = new URL(location.href);
+            (u.searchParams.delete("map"), location.replace(u.href));
+          } catch {
+            location.reload();
+          }
+        }, 150);
         return;
       }
       if (T.dataset.diff) {
@@ -37549,7 +38466,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
       "WEST",
       "NORTH-WEST",
     ],
-    _l = {
+    _l = SL_M.radio || {
       intro:
         "Breacher, this is Control. The Harbormaster holds the berth. Cut its three uplinks \u2014 yard, shed, quay.",
       contact: "It has seen you. Gulls fly, Hounds walk. Put them down.",
@@ -37574,6 +38491,9 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
     },
     SL_BEST = "saltline.best.v1",
     SL_RATINGS = ["Messy", "Loud", "Steady", "Clean", "Sharp", "Surgical", "Ghost"];
+  function slBestKey(d) {
+    return SL_MAP === "saltline" ? d : SL_MAP + ":" + d;
+  }
   function slLoadBest() {
     try {
       let b = JSON.parse(localStorage.getItem(SL_BEST) || "null");
@@ -37692,7 +38612,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
           return z && p.x >= z.min[0] && p.x <= z.max[0] && p.z >= z.min[1] && p.z <= z.max[1];
         };
       L.vantage && L.vantage.roof && pts.push(L.vantage.roof);
-      for (let zn of ["shed", "quay", "yard"]) {
+      for (let zn of zones.some((q) => q.name === "shed") ? ["shed", "quay", "yard"] : zones.map((q) => q.name)) {
         if (pts.length >= 3) break;
         let best = null,
           bs = -1;
@@ -38301,7 +39221,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
         P.push({
           id: "extract",
           short: "EX",
-          label: "Boat",
+          label: SL_M.exitLabel,
           pos: s.extraction.pos,
           kind: "extract",
         }),
@@ -38340,7 +39260,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
         C(!0));
     }
     function D() {
-      if (c.allCut) return "Get to the boat";
+      if (c.allCut) return "Get to the " + SL_M.exit;
       let P = c.relays.length - c.cut;
       return c.cut === 0
         ? "Cut the three uplink relays"
@@ -38620,7 +39540,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
             c.extractHint <= 0 &&
             ((c.extractHint = 8),
             o.message(
-              "Relays still live \u2014 the boat will not wait under fire",
+              "Relays still live \u2014 the " + SL_M.exit + " will not wait under fire",
               3.5,
             )),
           (c.extractHint = Math.max(0, c.extractHint - P)));
@@ -38676,7 +39596,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
       ((Y = Math.min(5, Y + (xi && xs.intel >= xi ? 1 : 0))),
         Y >= 5 && xs.quiet >= c.relays.length && (Y = 6));
       let L = SL_RATINGS[Y],
-        dk = l.settings.difficulty,
+        dk = slBestKey(l.settings.difficulty),
         bests = slLoadBest(),
         ob = bests[dk],
         nb = "";
@@ -38901,6 +39821,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
       (t.camera = t.render.camera),
       (t.viewCamera = t.render.viewCamera),
       await Nr("Mixing paint, rust and rain", 0.12),
+      SL_M.dry && (i.wet = "0"),
       await r("mats", "materials", () => Gg(t)),
       (t.physics = d3(t)),
       (t.props = Yg(t)),
@@ -38956,11 +39877,11 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
     } else {
       if (
         (await Nr("Stacking containers", 0.34),
-        await r("level", "level", () => C1(t), !0),
+        await r("level", "level", () => (SL_MAP === "drywell" ? slDryWell(t) : C1(t)), !0),
         await Nr("Raising the cranes", 0.5),
-        await r("backdrop", "backdrop", () => pv(t)),
-        await Nr("Flooding the apron", 0.58),
-        await r("ground", "ground", () => O1(t)),
+        SL_M.dry
+          ? (await r("ground", "ground", () => slDryGround(t)), await Nr("Raking the sand", 0.58), await r("backdrop", "backdrop", () => slDryBackdrop(t)))
+          : (await r("backdrop", "backdrop", () => pv(t)), await Nr("Flooding the apron", 0.58), await r("ground", "ground", () => O1(t))),
         t.ground.stub)
       ) {
         let h = Qi(
@@ -39072,7 +39993,14 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
                 ));
             }
         } else d && (u("player", p), u("weapon", p), u("enemies", p));
-        if (
+        if (SL_M.dry) {
+          if (c !== 0 && t.weapon && t.weapon.setWetness) {
+            c = 0;
+            try {
+              t.weapon.setWetness(0);
+            } catch {}
+          }
+        } else if (
           t.weapon &&
           t.weapon.setWetness &&
           t.level &&

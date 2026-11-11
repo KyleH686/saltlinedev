@@ -295,7 +295,7 @@ kbd { display: inline-block; font: 500 10px/1 var(--f-mono); color: var(--bone);
 .toggle[aria-pressed="true"] i { border-color: var(--signal); } .toggle[aria-pressed="true"] i::after { transform: translateX(20px); background: var(--signal); }
 
 /* ---- intro location card ---- */
-.loc-card { position: absolute; left: max(var(--gl), 5.5vw); bottom: calc(28vh + var(--sab)); padding-left: 16px; opacity: 0; transition: opacity .5s; text-shadow: var(--shadow); max-width: calc(100vw - var(--gl) - var(--gr) - 16px); }
+.loc-card { pointer-events: none; position: absolute; left: max(var(--gl), 5.5vw); bottom: calc(28vh + var(--sab)); padding-left: 16px; opacity: 0; transition: opacity .5s; text-shadow: var(--shadow); max-width: calc(100vw - var(--gl) - var(--gr) - 16px); }
 .loc-card i { position: absolute; left: 0; top: 2px; bottom: 2px; width: 3px; background: var(--signal); }
 .loc-card b { display: block; font: 700 clamp(19px, 3vw, 34px)/1.05 var(--f-display); letter-spacing: .16em; text-transform: uppercase; }
 .loc-card span { display: block; margin-top: 7px; font: 400 11px/1.4 var(--f-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--bone-dim); }
@@ -387,6 +387,22 @@ kbd { display: inline-block; font: 500 10px/1 var(--f-mono); color: var(--bone);
 /* diagnostics readout (Settings > Diagnostics) and the build stamp on the title */
 .sl-diag { position: absolute; left: 50%; top: calc(4px + var(--sat)); transform: translateX(-50%); z-index: 70; margin: 0; pointer-events: none; font: 500 10px/1.35 var(--f-mono); color: #b8e6a8; background: rgba(11, 13, 15, .78); padding: 5px 8px; white-space: pre; max-width: 96vw; overflow: hidden; }
 .m-build { margin-top: 4px !important; font: 400 10px/1.2 var(--f-mono); letter-spacing: .04em; color: var(--bone-faint); }
+
+/* title on a phone held sideways: everything has to fit in ~340px of height */
+@media (max-height: 640px) and (min-width: 600px) {
+  .m-title .m-note { display: none; }
+  .m-title .m-diff { display: inline-flex; width: 47%; max-width: 360px; margin-top: 10px; vertical-align: top; }
+  .m-title .m-map { margin-right: 3%; }
+  .m-title .m-best, .m-title .m-build { display: inline-block; margin: 5px 14px 0 0 !important; }
+}
+@media (max-height: 430px) {
+  .m-title .m-eyebrow, .m-title .m-note { display: none; }
+  .m-title .m-word { font-size: clamp(34px, 13vh, 52px); line-height: .9; }
+  .m-title .m-premise { font-size: 15px; padding-top: 8px !important; margin-top: 6px !important; }
+  .m-title .m-diff { margin-top: 8px; max-width: none; }
+  .m-title .m-diff button { min-height: 32px; letter-spacing: .1em; font-size: 12px; }
+  .m-title .m-actions { margin-top: 8px; }
+}
 
 /* controller focus in menus */
 .sl-pf:focus { outline: 2px solid var(--signal); outline-offset: 3px; }

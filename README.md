@@ -15,6 +15,7 @@ It works offline after the first visit. For 120 FPS on a ProMotion iPhone, turn 
 
 ## What's in the game
 
+- Two maps, picked on the title screen: **Berth 4**, the rain-soaked container port, and **Dry Well**, a small walled oil lease in the desert with a climbable derrick, tank farm, pump house and a working pumpjack.
 - Three difficulties (Recruit, Breacher, Veteran) with a best time saved for each.
 - Stealth: patrols notice you faster when you're close, standing or sprinting. A meter shows when you're being noticed.
 - Melee (F, middle mouse, RB/R3, or HIT on touch): a rifle-butt strike that silently destroys a machine that hasn't spotted you.
@@ -28,4 +29,5 @@ It works offline after the first visit. For 120 FPS on a ProMotion iPhone, turn 
 - `src/` is the source: `shell.html` (page and styles), `game.js` (the game, unminified), `three.js` (three.js r180, bundled).
 - `pwa/` holds the home-screen app pieces copied in by the build.
 - `build.sh` rebuilds `index.html` (and `dist/saltline.html`, the single-file version) from `src/`. It needs Python 3 and esbuild (`npm i -g esbuild`, or it falls back to `npx esbuild`).
+- `src/game.js` holds both maps: `C1` builds Berth 4 and `slDryWell` builds Dry Well (search for "Map 2"). `?map=drywell` in the address forces a map.
 - `tools/` has Playwright scripts used to check the game headless (`node tools/t-eval.js '<query>' '<js>'` boots `dist/saltline.html` and runs a snippet; `?q=test&noaudio=1&autostart=1` skips the title).
