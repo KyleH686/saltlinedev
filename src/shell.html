@@ -381,6 +381,8 @@ kbd { display: inline-block; font: 500 10px/1 var(--f-mono); color: var(--bone);
 .sl-pf:focus { outline: 2px solid var(--signal); outline-offset: 3px; }
 .seg button.sl-pf:focus { outline-offset: -2px; }
 
+.row label small { display: block; margin-top: 5px; font: 400 10px/1 var(--f-mono); letter-spacing: .04em; text-transform: none; color: var(--steel); }
+
 /* ---- motion preferences ---- */
 @media (prefers-reduced-motion: reduce) {
   .menu *, .hud *, .comms, .loc-card, .loc-card *, #boot, .m-bars i { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
