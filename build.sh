@@ -4,6 +4,9 @@ set -e
 cd "$(dirname "$0")"
 mkdir -p dist
 cat src/three.js src/game.js > dist/bundle.js
+# stamp the build so a screenshot says exactly which version is running
+STAMP=$(date -u +%m%d.%H%M)
+sed -i "s/__SL_BUILD__/$STAMP/" dist/bundle.js
 ES=$(command -v esbuild || ls /opt/npm-tools/node_modules/.bin/esbuild 2>/dev/null || echo 'npx --yes esbuild')
 $ES dist/bundle.js --minify-whitespace --minify-syntax --log-level=warning --outfile=dist/bundle.min.js
 python3 -I - <<'PY'

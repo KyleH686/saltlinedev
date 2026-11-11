@@ -15,6 +15,35 @@
       (slFps.work = 0));
   }
   window.__slSetFps = slSetFps;
+  var slDiagEl = null,
+    slDiagT = 0;
+  function slDiag(t) {
+    if (!window.__slDiag) return void (slDiagEl && (slDiagEl.remove(), (slDiagEl = null)));
+    let now = performance.now();
+    if (now - slDiagT < 120) return;
+    slDiagT = now;
+    if (!slDiagEl) {
+      let ui = document.getElementById("ui");
+      if (!ui) return;
+      ((slDiagEl = document.createElement("pre")), (slDiagEl.className = "sl-diag"), ui.appendChild(slDiagEl));
+    }
+    let I = t.input || {},
+      d = I.dbg || {},
+      s = I.dbgState ? I.dbgState() : {},
+      P = t.player || {},
+      n2 = (v) => (typeof v == "number" ? v.toFixed(2) : String(v)),
+      er = window.__errors || [];
+    slDiagEl.textContent = [
+      `build ${SL_BUILD}  ${t.game ? t.game.state : "?"}  q:${t.quality && t.quality.name}`,
+      `touch start ${d.ts} move ${d.tm} end ${d.te} cancel ${d.tc}  on ${d.tgt}`,
+      `last id ${d.lastId}  x ${d.lastX}/${innerWidth}  stick id ${s.w}  look id ${s.q}`,
+      `stick ${n2(s.H)},${n2(s.O)}  play ${s.r}  mode ${I.mode}  touch ${I.touch}  pad ${I.gamepad}`,
+      `move ${n2(I.move && I.move.x)},${n2(I.move && I.move.y)}  sprint ${I.sprint}  crouch ${I.crouch}`,
+      `speed ${n2(P.speed)}  ground ${P.onGround}  slide ${!!P.sliding}  crouched ${P.crouching}  on ${P.enabled}  alive ${P.alive}`,
+      `pos ${n2(P.pos && P.pos.x)},${n2(P.pos && P.pos.y)},${n2(P.pos && P.pos.z)}  yaw ${n2(P.yaw)}`,
+      `blur ${d.blur}  resets ${d.reset}  errors ${er.length}${er.length ? "  " + String(er[er.length - 1]).slice(0, 90) : ""}`,
+    ].join("\n");
+  }
   var oi = {
       min: new W(-40, 0, -30),
       max: new W(40, 30, 30),
@@ -28547,6 +28576,10 @@ void main() {
         sensitivity: 1,
         invertY: !1,
         mode: "lock",
+        dbg: { ts: 0, tm: 0, te: 0, tc: 0, blur: 0, reset: 0, lastId: null, lastX: 0, tgt: "" },
+        dbgState() {
+          return { w, q, H, O, r, If };
+        },
         down(P) {
           return n.has(P) && (r || g_[P] === 1);
         },
@@ -28607,6 +28640,7 @@ void main() {
       }
     }
     function v() {
+      f.dbg.reset++;
       for (let P in o) o[P].clear();
       (n.clear(),
         (u = 0),
@@ -28645,6 +28679,7 @@ void main() {
         d("key", h_[P.code], !1);
       }),
       addEventListener("blur", () => {
+        f.dbg.blur++;
         v();
       }));
     let g = (P) =>
@@ -28845,6 +28880,7 @@ void main() {
       e.addEventListener(
         "touchstart",
         (P) => {
+          (f.dbg.ts++, P.changedTouches[0] && ((f.dbg.lastId = P.changedTouches[0].identifier), (f.dbg.lastX = Math.round(P.changedTouches[0].clientX))));
           // a finger whose lift was never reported (system gesture, notification) must not hold the stick forever
           if (w !== null || q !== null) {
             let live = !1,
@@ -28871,6 +28907,7 @@ void main() {
       e.addEventListener(
         "touchmove",
         (P) => {
+          (f.dbg.tm++, P.changedTouches[0] && (f.dbg.lastId = P.changedTouches[0].identifier));
           if ((P.preventDefault(), !!r))
             for (let V of P.changedTouches)
               if (V.identifier === w) {
@@ -28900,9 +28937,19 @@ void main() {
         { passive: !1 },
       ));
     let F = (P) => {
+      P.type === "touchcancel" ? f.dbg.tc++ : f.dbg.te++;
       for (let V of P.changedTouches)
         V.identifier === w ? ie() : V.identifier === q && (q = null);
     };
+    // every touch anywhere, whatever it landed on: shows when something other than the view is taking them
+    addEventListener(
+      "touchstart",
+      (P) => {
+        let T0 = P.target;
+        f.dbg.tgt = T0 ? (T0.id ? "#" + T0.id : T0.className ? "." + String(T0.className).split(" ")[0] : T0.tagName) : "?";
+      },
+      { passive: !0, capture: !0 },
+    );
     (e.addEventListener("touchend", F, { passive: !1 }),
       e.addEventListener("touchcancel", F, { passive: !1 }));
     let X = {
@@ -37017,7 +37064,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
     return (R(), I);
   }
   var fM = "saltline.settings.v1",
-    XC = { quality: "auto", sens: 1, invertY: !1, volume: 0.8, fov: Pi.fov, difficulty: "breacher", fps: "max", showFps: !1, sprintMode: "hold", crouchMode: "hold", aimAssist: "on" },
+    XC = { quality: "auto", sens: 1, invertY: !1, volume: 0.8, fov: Pi.fov, difficulty: "breacher", fps: "max", showFps: !1, sprintMode: "hold", crouchMode: "hold", aimAssist: "on", diag: !1 },
     dM = ["lite", "low", "medium", "high", "ultra"];
   function YC() {
     let i = { ...XC };
@@ -37038,7 +37085,8 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
         (i.showFps = !!e.showFps),
         ["hold", "toggle", "auto"].includes(e.sprintMode) && (i.sprintMode = e.sprintMode),
         ["hold", "toggle"].includes(e.crouchMode) && (i.crouchMode = e.crouchMode),
-        ["off", "on", "strong"].includes(e.aimAssist) && (i.aimAssist = e.aimAssist));
+        ["off", "on", "strong"].includes(e.aimAssist) && (i.aimAssist = e.aimAssist),
+        (i.diag = !!e.diag));
     } catch {}
     return i;
   }
@@ -37093,6 +37141,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
         <p class="m-premise">The port\u2019s security net has gone feral. Cut its three uplinks. Reach the boat.</p>
         <div class="m-diff" role="group" aria-label="Difficulty">${Object.keys(SL_DIFF).map((U) => `<button data-diff="${U}" aria-pressed="false">${SL_DIFF[U].name}</button>`).join("")}</div>
         <p class="m-best" data-f="best"></p>
+        <p class="m-build">Build ${SL_BUILD}</p>
         <div class="m-actions">
           <button class="btn primary" data-act="deploy">Deploy</button>
           <button class="btn" data-act="settings">Settings</button>
@@ -37163,6 +37212,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
         <div class="row"><label id="l-fps">Frame rate</label>
           <div class="seg" role="group" aria-labelledby="l-fps">${Object.keys(SL_FPS_MODES).map((U) => `<button data-fps="${U}" aria-pressed="false">${SL_FPS_MODES[U]}</button>`).join("")}</div></div>
         <div class="row"><label id="l-fpsc">FPS counter</label><button class="toggle" data-act="fpsshow" aria-labelledby="l-fpsc" aria-pressed="false"><i></i><span>Off</span></button></div>
+        <div class="row"><label id="l-diag">Diagnostics <small>on-screen readout for bug reports</small></label><button class="toggle" data-act="diag" aria-labelledby="l-diag" aria-pressed="false"><i></i><span>Off</span></button></div>
         <div class="row"><label for="s-sens">Look sensitivity</label><div class="slider"><input id="s-sens" type="range" min="0.2" max="3" step="0.05"><output data-o="sens"></output></div></div>
         <div class="row"><label id="l-inv">Invert Y</label><button class="toggle" data-act="invert" aria-labelledby="l-inv" aria-pressed="false"><i></i><span>Off</span></button></div>
         <div class="row"><label for="s-vol">Master volume</label><div class="slider"><input id="s-vol" type="range" min="0" max="100" step="1"><output data-o="vol"></output></div></div>
@@ -37236,6 +37286,11 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
         (o('[data-o="sens"]').textContent = n.sens.toFixed(2) + "\xD7"),
         (o('[data-o="vol"]').textContent = Math.round(n.volume * 100) + "%"),
         (o('[data-o="fov"]').textContent = Math.round(n.fov) + "\xB0"));
+      {
+        let D = o('[data-act="diag"]');
+        (D.setAttribute("aria-pressed", String(n.diag)), (D.querySelector("span").textContent = n.diag ? "On" : "Off"));
+        window.__slDiag = n.diag;
+      }
       for (let D of r("[data-mv]")) {
         let [K, V] = D.dataset.mv.split(":");
         D.setAttribute("aria-pressed", String(n[K] === V));
@@ -37344,6 +37399,10 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
       }
       if (T.dataset.fps) {
         (i.events.emit("ui:click", {}), (n.fps = T.dataset.fps), slSetFps(n.fps, n.showFps), g(), Wf(n));
+        return;
+      }
+      if (T.dataset.act === "diag") {
+        (i.events.emit("ui:click", {}), (n.diag = !n.diag), g(), Wf(n));
         return;
       }
       if (T.dataset.act === "fpsshow") {
@@ -37507,6 +37566,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
   //  silent takedowns, ammo drops from wrecks, optional intel drives,
   //  personal bests, touch aim slowdown.
   // ======================================================================
+  var SL_BUILD = "__SL_BUILD__";
   var SL_DIFF = {
       recruit: { name: "Recruit", dmg: 0.6, regen: 3, see: 1.35, wave: -1, maxAlive: 7, ammo: 1.3 },
       breacher: { name: "Breacher", dmg: 1, regen: 4, see: 1, wave: 0, maxAlive: 9, ammo: 1 },
@@ -39064,6 +39124,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
               (slFps.t0 = h));
           }
         }
+        if (window.__slDiag || slDiagEl) slDiag(t);
         (t.input.endFrame && t.input.endFrame(),
           window.__frames++,
           window.__frames === 2 && (window.__ready = !0));

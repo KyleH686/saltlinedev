@@ -1,11 +1,13 @@
 // Network first, falling back to the cached copy so the game also opens offline.
-const C = 'saltline-v1';
+const C = 'saltline-v2';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 self.addEventListener('install', e => { self.skipWaiting(); e.waitUntil(caches.open(C).then(c => c.addAll(FILES))); });
 self.addEventListener('activate', e => e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== C).map(k => caches.delete(k)))).then(() => self.clients.claim())));
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
-  e.respondWith(fetch(e.request).then(r => {
+  // revalidate our own files with the server every time, so a new build shows up on the next launch
+  const own = new URL(e.request.url).origin === location.origin;
+  e.respondWith(fetch(e.request, own ? { cache: 'no-cache' } : {}).then(r => {
     // keep a copy of our own files and the web fonts so the next launch works without signal
     const u = new URL(e.request.url);
     if (r.ok && (u.origin === location.origin || /fonts\.(googleapis|gstatic)\.com$/.test(u.hostname))) { const cp = r.clone(); caches.open(C).then(c => c.put(e.request, cp)); }
