@@ -3,7 +3,7 @@
     SL_FPS_MODES = { 30: "30", 60: "60", 120: "120", max: "Max" };
   function slSetFps(mode, show) {
     let c = mode === "max" ? 0 : +mode || 0;
-    ((slFps.cap = c), (slFps.budget = c ? Math.max(1, 60 / c) : 1), (slFps.show = !!show));
+    ((slFps.cap = c), (slFps.budget = c ? 60 / c : 1), (slFps.show = !!show));
     if (show && !slFps.el) {
       let ui = document.getElementById("ui");
       ui && ((slFps.el = document.createElement("div")), (slFps.el.className = "sl-fps"), ui.appendChild(slFps.el));
@@ -56,6 +56,19 @@
         bloom: !0,
         motionBlur: !1,
         rain: 0.4,
+      },
+      lite: {
+        name: "lite",
+        scale: 0.62,
+        msaa: 0,
+        shadow: 1024,
+        tex: 512,
+        volSteps: 0,
+        ao: !1,
+        planar: 0,
+        bloom: !1,
+        motionBlur: !1,
+        rain: 0.3,
       },
       low: {
         name: "low",
@@ -1711,7 +1724,7 @@ ${fe}`,
     function ue() {
       let oe = Math.max(6, d().volSteps | 0),
         fe =
-          d().name === "test" || d().name === "low"
+          d().name === "test" || d().name === "low" || d().name === "lite"
             ? 8
             : d().name === "ultra"
               ? 16
@@ -2106,7 +2119,7 @@ ${fe}`,
       r.add(h, h.target));
     let d = !1;
     try {
-      d = qy(f, { taps: i.quality.name === "low" ? 10 : 16, searchTaps: 8 });
+      d = qy(f, { taps: i.quality.name === "low" || i.quality.name === "lite" ? 10 : 16, searchTaps: 8 });
     } catch (ie) {
       console.warn("[render] soft shadows unavailable: " + ie);
     }
@@ -2254,7 +2267,7 @@ ${fe}`,
         X <= 0.6 && F > 26)
       ) {
         S.floorHits = (S.floorHits || 0) + 1;
-        let ne = { ultra: "high", high: "medium", medium: "low" }[
+        let ne = { ultra: "high", high: "medium", medium: "low", low: "lite" }[
           i.quality.name
         ];
         if (S.floorHits >= 2 && ne && Pr[ne]) {
@@ -2310,8 +2323,11 @@ ${fe}`,
         n.clear(!0, !0, !1),
         (i.quality.name === "ultra" ||
           e.shot ||
-          (T & 1) === 0 ||
-          !h.shadow.map) &&
+          !h.shadow.map ||
+          (i.quality.name === "lite" || i.quality.name === "low"
+            ? performance.now() - (N.shT || 0) > (i.quality.name === "lite" ? 99 : 49) &&
+              (N.shT = performance.now())
+            : (T & 1) === 0)) &&
           (n.shadowMap.needsUpdate = !0),
         n.render(r, a),
         E && (A.copyDepth(b), n.setRenderTarget(m)),
@@ -2470,7 +2486,7 @@ ${fe}`,
             (n.setPixelRatio(X), n.setSize(ie, F, !1));
             let re = ne * S.scale,
               $ =
-                { low: 1e6, medium: 15e5, high: 23e5, ultra: 37e5 }[
+                { lite: 6e5, low: 1e6, medium: 15e5, high: 23e5, ultra: 37e5 }[
                   i.quality.name
                 ] || 23e5,
               ue = ie * X * F * X * re * re;
@@ -28387,6 +28403,8 @@ void main() {
         (u = 0),
         (j = !1),
         (cr = !1),
+        (spL = !1),
+        (crL = !1),
         M &&
           (M.btn.ads.classList.remove("active"),
           M.btn.crouch.classList.remove("active"),
@@ -28510,7 +28528,9 @@ void main() {
       C = 0,
       G = 0,
       j = !1,
-      cr = !1;
+      cr = !1,
+      spL = !1,
+      crL = !1;
     function N() {
       let P = document.createElement("div");
       ((P.className = "touch"),
@@ -28547,7 +28567,7 @@ void main() {
               return;
             }
             if (L === "crouch") {
-              ((cr = !cr), Z.classList.toggle("active", cr), d("touch", "crouch", cr));
+              ((cr = !cr), Z.classList.toggle("active", cr));
               return;
             }
             (L === "fire" &&
@@ -28677,6 +28697,83 @@ void main() {
         let V = Math.abs(P);
         return V < 0.16 ? 0 : (Math.sign(P) * (V - 0.16)) / 0.84;
       };
+    // ---- menus with a controller: D-pad / left stick move, A selects, B goes back, sliders move with left/right ----
+    let pnPrev = {},
+      pnRep = 0,
+      pnDir = 0;
+    function slPadNav(Y, P) {
+      let b = (k) => !!(Y.buttons[k] && (Y.buttons[k].pressed || Y.buttons[k].value > 0.5)),
+        edge = (k) => {
+          let v = b(k),
+            was = pnPrev[k];
+          return ((pnPrev[k] = v), v && !was);
+        },
+        ay = Y.axes[1] || 0,
+        ax = Y.axes[0] || 0,
+        dir = b(12) || ay < -0.6 ? 1 : b(13) || ay > 0.6 ? 2 : b(14) || ax < -0.6 ? 3 : b(15) || ax > 0.6 ? 4 : 0;
+      (dir !== pnDir ? ((pnDir = dir), (pnRep = 0.42), dir && slPadMove(dir)) : dir && (pnRep -= P) <= 0 && ((pnRep = 0.12), slPadMove(dir)));
+      let a = edge(0),
+        bb = edge(1);
+      for (let k of [12, 13, 14, 15]) pnPrev[k] = b(k);
+      if (a) {
+        let el = slPadFocus();
+        el && el.tagName === "BUTTON" && el.click();
+      }
+      if (bb) {
+        let el = document.activeElement && document.activeElement !== document.body ? document.activeElement : document.querySelector(".menu");
+        el && el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: !0 }));
+      }
+    }
+    function slPadList() {
+      return [
+        ...document.querySelectorAll(
+          ".menu button, .menu input[type=range], .menu summary, [role=dialog] button, [role=dialog] input[type=range]",
+        ),
+      ].filter((el) => el.offsetParent !== null && !el.disabled && !el.closest("[hidden]"));
+    }
+    function slPadFocus() {
+      let L = slPadList(),
+        a = document.activeElement;
+      if (L.includes(a)) return a;
+      let el = L.find((e) => e.classList.contains("primary")) || L[0];
+      return (el && (el.focus({ focusVisible: !0 }), el.classList.add("sl-pf")), null);
+    }
+    function slPadMove(dir) {
+      let L = slPadList();
+      if (!L.length) return;
+      let a = document.activeElement,
+        i0 = L.indexOf(a);
+      if (i0 < 0) return void slPadFocus();
+      if ((dir === 3 || dir === 4) && a.type === "range") {
+        let st = +a.step || 1;
+        ((a.value = String(+a.value + (dir === 4 ? st : -st) * (+a.step ? 1 : 0.05 * (a.max - a.min)))),
+          a.dispatchEvent(new Event("input", { bubbles: !0 })));
+        return;
+      }
+      let ar = a.getBoundingClientRect(),
+        cx = ar.left + ar.width / 2,
+        cy = ar.top + ar.height / 2,
+        best = null,
+        bs = 1e9;
+      for (let el of L) {
+        if (el === a) continue;
+        let r2 = el.getBoundingClientRect(),
+          dx = r2.left + r2.width / 2 - cx,
+          dy = r2.top + r2.height / 2 - cy,
+          ok = dir === 1 ? dy < -4 : dir === 2 ? dy > 4 : dir === 3 ? dx < -4 : dx > 4;
+        if (!ok) continue;
+        let along = dir < 3 ? Math.abs(dy) : Math.abs(dx),
+          across = dir < 3 ? Math.abs(dx) : Math.abs(dy),
+          sc = along + across * 2.5;
+        sc < bs && ((bs = sc), (best = el));
+      }
+      !best && dir < 3 && (best = L[(i0 + (dir === 2 ? 1 : L.length - 1)) % L.length]);
+      if (best) {
+        for (let e of document.querySelectorAll(".sl-pf")) e.classList.remove("sl-pf");
+        (best.focus({ focusVisible: !0 }), best.classList.add("sl-pf"), best.scrollIntoView && best.scrollIntoView({ block: "nearest" }));
+        i.events && i.events.emit && i.events.emit("ui:hover", {});
+      }
+    }
     function me(P) {
       if (((re = $ = 0), !ne)) return;
       let V;
@@ -28697,6 +28794,7 @@ void main() {
         return;
       }
       ((f.gamepad = !0), (re = ue(Y.axes[0] || 0)), ($ = -ue(Y.axes[1] || 0)));
+      r || slPadNav(Y, P);
       let L = ue(Y.axes[2] || 0),
         Z = ue(Y.axes[3] || 0);
       let ak = f.aimSlow || 1;
@@ -28735,12 +28833,16 @@ void main() {
         ((V = (n.has("right") ? 1 : 0) - (n.has("left") ? 1 : 0)),
           (Y = (n.has("forward") ? 1 : 0) - (n.has("back") ? 1 : 0)),
           (L = n.has("sprint")),
+          (f.sprintMode || "hold") === "toggle" && (s.has("sprint") && (spL = !spL), (L = spL)),
           w >= 0 &&
             ((V += H),
             (Y += O),
             Math.hypot(H, O) > 0.93 && O > 0.8 && (L = !0)),
           (V += re),
           (Y += $));
+        // auto sprint: keyboard forward or stick pushed fully forward runs; holding sprint walks instead
+        (f.sprintMode || "hold") === "auto" && (L = (Y > 0.8 && !n.has("sprint")) || L && w >= 0);
+        (Y < 0.3 && (spL = !1));
         let Z = Math.hypot(V, Y);
         Z > 1 && ((V /= Z), (Y /= Z));
         let J = (n.has("turnR") ? 1 : 0) - (n.has("turnL") ? 1 : 0),
@@ -28752,9 +28854,14 @@ void main() {
         (f.move.y = Y),
         (f.fire = r && n.has("fire")),
         (f.ads = r && (n.has("ads") || j)),
-        (f.sprint = r && L),
-        (f.crouch = r && n.has("crouch")),
-        cr && s.has("jump") && ((cr = !1), o.touch.delete("crouch"), n.delete("crouch"), (f.crouch = !1), M && M.btn.crouch.classList.remove("active")));
+        (f.sprint = r && L));
+      // crouch: hold, or toggle (C / B); jumping or breaking into a sprint stands you up
+      let cH = n.has("crouch");
+      (f.crouchMode || "hold") === "toggle" && (s.has("crouch") && (crL = !crL), (cH = crL));
+      ((s.has("jump") || (f.sprint && s.has("sprint"))) &&
+        (crL && (crL = !1),
+        cr && ((cr = !1), M && M.btn.crouch.classList.remove("active"))),
+        (f.crouch = r && (cH || cr)));
     }
     function B() {
       (s.clear(), (f.look.dx = 0), (f.look.dy = 0));
@@ -36625,8 +36732,8 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
     return (R(), I);
   }
   var fM = "saltline.settings.v1",
-    XC = { quality: "auto", sens: 1, invertY: !1, volume: 0.8, fov: Pi.fov, difficulty: "breacher", fps: "max", showFps: !1 },
-    dM = ["low", "medium", "high", "ultra"];
+    XC = { quality: "auto", sens: 1, invertY: !1, volume: 0.8, fov: Pi.fov, difficulty: "breacher", fps: "max", showFps: !1, sprintMode: "hold", crouchMode: "hold" },
+    dM = ["lite", "low", "medium", "high", "ultra"];
   function YC() {
     let i = { ...XC };
     try {
@@ -36643,7 +36750,9 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
         Number.isFinite(e.fov) && (i.fov = Math.min(95, Math.max(60, e.fov))),
         SL_DIFF[e.difficulty] && (i.difficulty = e.difficulty),
         SL_FPS_MODES[e.fps] && (i.fps = String(e.fps)),
-        (i.showFps = !!e.showFps));
+        (i.showFps = !!e.showFps),
+        ["hold", "toggle", "auto"].includes(e.sprintMode) && (i.sprintMode = e.sprintMode),
+        ["hold", "toggle"].includes(e.crouchMode) && (i.crouchMode = e.crouchMode));
     } catch {}
     return i;
   }
@@ -36757,6 +36866,10 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
       <div class="panel-b" data-pane="settings">
         <div class="row"><label id="l-q">Graphics quality</label>
           <div class="seg" role="group" aria-labelledby="l-q">${dM.map((U) => `<button data-q="${U}" aria-pressed="false">${U}</button>`).join("")}</div></div>
+        <div class="row"><label id="l-spr">Sprint</label>
+          <div class="seg" role="group" aria-labelledby="l-spr">${["hold", "toggle", "auto"].map((U) => `<button data-mv="sprintMode:${U}" aria-pressed="false">${U}</button>`).join("")}</div></div>
+        <div class="row"><label id="l-cro">Crouch</label>
+          <div class="seg" role="group" aria-labelledby="l-cro">${["hold", "toggle"].map((U) => `<button data-mv="crouchMode:${U}" aria-pressed="false">${U}</button>`).join("")}</div></div>
         <div class="row"><label id="l-fps">Frame rate</label>
           <div class="seg" role="group" aria-labelledby="l-fps">${Object.keys(SL_FPS_MODES).map((U) => `<button data-fps="${U}" aria-pressed="false">${SL_FPS_MODES[U]}</button>`).join("")}</div></div>
         <div class="row"><label id="l-fpsc">FPS counter</label><button class="toggle" data-act="fpsshow" aria-labelledby="l-fpsc" aria-pressed="false"><i></i><span>Off</span></button></div>
@@ -36772,7 +36885,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
         <p class="panel-note">If the browser will not capture the mouse, hold a mouse button and drag to look (left also fires, right also aims). Arrow keys or <kbd>I</kbd><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd> turn, <kbd>Enter</kbd> fires.</p>
         <h3>Touch</h3>${ZC}
         <h3>Gamepad</h3>
-        <p class="panel-note">Sticks move and look \xB7 RT fire \xB7 LT aim \xB7 A jump \xB7 B crouch \xB7 X reload \xB7 Y cut relay \xB7 RB or R3 melee \xB7 L3 sprint \xB7 Start pause. The sight slows slightly over a target on touch and pad.</p>
+        <p class="panel-note">Sticks move and look \xB7 RT fire \xB7 LT aim \xB7 A jump \xB7 B crouch \xB7 X reload \xB7 Y cut relay \xB7 RB or R3 melee \xB7 L3 sprint \xB7 Start pause. Sprint and crouch can be hold, toggle or (sprint) automatic in Settings. In menus: D-pad or stick to move, A to select, B to go back. The sight slows slightly over a target on touch and pad.</p>
       </div>
     </div>
 
@@ -36833,6 +36946,11 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
         (o('[data-o="sens"]').textContent = n.sens.toFixed(2) + "\xD7"),
         (o('[data-o="vol"]').textContent = Math.round(n.volume * 100) + "%"),
         (o('[data-o="fov"]').textContent = Math.round(n.fov) + "\xB0"));
+      for (let D of r("[data-mv]")) {
+        let [K, V] = D.dataset.mv.split(":");
+        D.setAttribute("aria-pressed", String(n[K] === V));
+      }
+      i.input && ((i.input.sprintMode = n.sprintMode), (i.input.crouchMode = n.crouchMode));
       for (let D of r("[data-fps]"))
         D.setAttribute("aria-pressed", String(D.dataset.fps === n.fps));
       {
@@ -36929,6 +37047,11 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
     (s.addEventListener("click", (U) => {
       let T = U.target.closest("button");
       if (!T || !s.contains(T)) return;
+      if (T.dataset.mv) {
+        let [K, V] = T.dataset.mv.split(":");
+        (i.events.emit("ui:click", {}), (n[K] = V), g(), Wf(n));
+        return;
+      }
       if (T.dataset.fps) {
         (i.events.emit("ui:click", {}), (n.fps = T.dataset.fps), slSetFps(n.fps, n.showFps), g(), Wf(n));
         return;
