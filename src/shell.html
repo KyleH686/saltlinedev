@@ -384,6 +384,10 @@ kbd { display: inline-block; font: 500 10px/1 var(--f-mono); color: var(--bone);
 .is-touch .sl-nades { display: none; }
 .t-nade { width: 54px; height: 50px; right: calc(22px + var(--sar)); bottom: calc(234px + var(--sab)); font-size: 10px; }
 
+/* diagnostics readout (Settings > Diagnostics) and the build stamp on the title */
+.sl-diag { position: absolute; left: 50%; top: calc(4px + var(--sat)); transform: translateX(-50%); z-index: 70; margin: 0; pointer-events: none; font: 500 10px/1.35 var(--f-mono); color: #b8e6a8; background: rgba(11, 13, 15, .78); padding: 5px 8px; white-space: pre; max-width: 96vw; overflow: hidden; }
+.m-build { margin-top: 4px !important; font: 400 10px/1.2 var(--f-mono); letter-spacing: .04em; color: var(--bone-faint); }
+
 /* controller focus in menus */
 .sl-pf:focus { outline: 2px solid var(--signal); outline-offset: 3px; }
 .seg button.sl-pf:focus { outline-offset: -2px; }
