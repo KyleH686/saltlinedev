@@ -28618,8 +28618,8 @@ void main() {
           (M.btn.ads.classList.remove("active"),
           M.btn.crouch.classList.remove("active"),
           ie(),
-          (q = -1),
-          (D = -1)));
+          (q = null),
+          (D = null)));
     }
     (addEventListener("keydown", (P) => {
       let V = h_[P.code];
@@ -28726,15 +28726,15 @@ void main() {
     }
     let M = null,
       E = 0,
-      w = -1,
+      w = null,
       S = 0,
       z = 0,
       H = 0,
       O = 0,
-      q = -1,
+      q = null,
       U = 0,
       T = 0,
-      D = -1,
+      D = null,
       C = 0,
       G = 0,
       j = !1,
@@ -28795,7 +28795,7 @@ void main() {
               for (let le of oe.changedTouches)
                 le.identifier === D && (fe = !0);
               if (!fe) return;
-              D = -1;
+              D = null;
             }
             (Z.classList.remove("active"), d("touch", L, !1));
           }
@@ -28833,7 +28833,7 @@ void main() {
         p("touch"));
     }
     function ie() {
-      ((w = -1), (H = O = 0), M && M.stick.classList.remove("on"));
+      ((w = null), (H = O = 0), M && M.stick.classList.remove("on"));
     }
     (addEventListener(
       "touchstart",
@@ -28846,15 +28846,15 @@ void main() {
         "touchstart",
         (P) => {
           // a finger whose lift was never reported (system gesture, notification) must not hold the stick forever
-          if (w >= 0 || q >= 0) {
+          if (w !== null || q !== null) {
             let live = !1,
               liveQ = !1;
             for (let V of P.touches) (V.identifier === w && (live = !0), V.identifier === q && (liveQ = !0));
-            (w >= 0 && !live && ie(), q >= 0 && !liveQ && (q = -1));
+            (w !== null && !live && ie(), q !== null && !liveQ && (q = null));
           }
           if ((P.preventDefault(), !!r))
             for (let V of P.changedTouches)
-              V.clientX < innerWidth * 0.45 && w < 0
+              V.clientX < innerWidth * 0.45 && w === null
                 ? ((w = V.identifier),
                   (S = V.clientX),
                   (z = V.clientY),
@@ -28863,7 +28863,7 @@ void main() {
                     ((M.stick.style.transform = `translate3d(${S}px,${z}px,0)`),
                     (M.nub.style.transform = "translate3d(0,0,0)"),
                     M.stick.classList.add("on")))
-                : q < 0 &&
+                : q === null &&
                   ((q = V.identifier), (U = V.clientX), (T = V.clientY));
         },
         { passive: !1 },
@@ -28886,7 +28886,7 @@ void main() {
                 (Q(V.clientX - U, V.clientY - T), (U = V.clientX), (T = V.clientY));
               // a finger that was already down when play began (or resumed) is picked up where it is
               else if (V.target === e)
-                V.clientX < innerWidth * 0.45 && w < 0
+                V.clientX < innerWidth * 0.45 && w === null
                   ? ((w = V.identifier),
                     (S = V.clientX),
                     (z = V.clientY),
@@ -28895,13 +28895,13 @@ void main() {
                       ((M.stick.style.transform = `translate3d(${S}px,${z}px,0)`),
                       (M.nub.style.transform = "translate3d(0,0,0)"),
                       M.stick.classList.add("on")))
-                  : q < 0 && ((q = V.identifier), (U = V.clientX), (T = V.clientY));
+                  : q === null && ((q = V.identifier), (U = V.clientX), (T = V.clientY));
         },
         { passive: !1 },
       ));
     let F = (P) => {
       for (let V of P.changedTouches)
-        V.identifier === w ? ie() : V.identifier === q && (q = -1);
+        V.identifier === w ? ie() : V.identifier === q && (q = null);
     };
     (e.addEventListener("touchend", F, { passive: !1 }),
       e.addEventListener("touchcancel", F, { passive: !1 }));
@@ -29063,14 +29063,14 @@ void main() {
           (Y = (n.has("forward") ? 1 : 0) - (n.has("back") ? 1 : 0)),
           (L = n.has("sprint")),
           (f.sprintMode || "hold") === "toggle" && (s.has("sprint") && (spL = !spL), (L = spL)),
-          w >= 0 &&
+          w !== null &&
             ((V += H),
             (Y += O),
             Math.hypot(H, O) > 0.93 && O > 0.8 && (L = !0)),
           (V += re),
           (Y += $));
         // auto sprint: keyboard forward or stick pushed fully forward runs; holding sprint walks instead
-        (f.sprintMode || "hold") === "auto" && (L = (Y > 0.8 && !n.has("sprint")) || L && w >= 0);
+        (f.sprintMode || "hold") === "auto" && (L = (Y > 0.8 && !n.has("sprint")) || L && w !== null);
         (Y < 0.3 && (spL = !1));
         let Z = Math.hypot(V, Y);
         Z > 1 && ((V /= Z), (Y /= Z));
