@@ -28845,6 +28845,13 @@ void main() {
       e.addEventListener(
         "touchstart",
         (P) => {
+          // a finger whose lift was never reported (system gesture, notification) must not hold the stick forever
+          if (w >= 0 || q >= 0) {
+            let live = !1,
+              liveQ = !1;
+            for (let V of P.touches) (V.identifier === w && (live = !0), V.identifier === q && (liveQ = !0));
+            (w >= 0 && !live && ie(), q >= 0 && !liveQ && (q = -1));
+          }
           if ((P.preventDefault(), !!r))
             for (let V of P.changedTouches)
               V.clientX < innerWidth * 0.45 && w < 0
@@ -28875,11 +28882,20 @@ void main() {
                   (O = -L / If),
                   M &&
                     (M.nub.style.transform = `translate3d(${Y.toFixed(1)}px,${L.toFixed(1)}px,0)`));
-              } else
-                V.identifier === q &&
-                  (Q(V.clientX - U, V.clientY - T),
-                  (U = V.clientX),
-                  (T = V.clientY));
+              } else if (V.identifier === q)
+                (Q(V.clientX - U, V.clientY - T), (U = V.clientX), (T = V.clientY));
+              // a finger that was already down when play began (or resumed) is picked up where it is
+              else if (V.target === e)
+                V.clientX < innerWidth * 0.45 && w < 0
+                  ? ((w = V.identifier),
+                    (S = V.clientX),
+                    (z = V.clientY),
+                    (H = O = 0),
+                    M &&
+                      ((M.stick.style.transform = `translate3d(${S}px,${z}px,0)`),
+                      (M.nub.style.transform = "translate3d(0,0,0)"),
+                      M.stick.classList.add("on")))
+                  : q < 0 && ((q = V.identifier), (U = V.clientX), (T = V.clientY));
         },
         { passive: !1 },
       ));
