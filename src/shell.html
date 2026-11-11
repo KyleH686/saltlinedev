@@ -377,6 +377,10 @@ kbd { display: inline-block; font: 500 10px/1 var(--f-mono); color: var(--bone);
 .sl-fps.low { color: var(--signal); }
 .sl-fps-on .h-obj { margin-top: 12px; }
 
+/* controller focus in menus */
+.sl-pf:focus { outline: 2px solid var(--signal); outline-offset: 3px; }
+.seg button.sl-pf:focus { outline-offset: -2px; }
+
 /* ---- motion preferences ---- */
 @media (prefers-reduced-motion: reduce) {
   .menu *, .hud *, .comms, .loc-card, .loc-card *, #boot, .m-bars i { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
