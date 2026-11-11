@@ -377,6 +377,13 @@ kbd { display: inline-block; font: 500 10px/1 var(--f-mono); color: var(--bone);
 .sl-fps.low { color: var(--signal); }
 .sl-fps-on .h-obj { margin-top: 12px; }
 
+/* grenades: count sits left of the ammo block; on touch the NADE button carries the count */
+.sl-nades { position: absolute; right: var(--gr); bottom: calc(124px + var(--sab)); text-align: right; font: 600 11px/1 var(--f-label); letter-spacing: .22em; text-transform: uppercase; color: var(--bone-dim); text-shadow: var(--shadow); }
+.sl-nades b { display: inline-block; margin-left: 10px; font: 600 20px/1 var(--f-display, var(--f-label)); letter-spacing: .02em; color: var(--bone); vertical-align: -2px; }
+.sl-nades.none b { color: var(--bone-faint); }
+.is-touch .sl-nades { display: none; }
+.t-nade { width: 54px; height: 50px; right: calc(22px + var(--sar)); bottom: calc(234px + var(--sab)); font-size: 10px; }
+
 /* controller focus in menus */
 .sl-pf:focus { outline: 2px solid var(--signal); outline-offset: 3px; }
 .seg button.sl-pf:focus { outline-offset: -2px; }

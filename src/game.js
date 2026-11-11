@@ -123,6 +123,28 @@
         rain: 1,
       },
     };
+  // per-tier render costs (Nov 2026): soft-shadow taps, minimum ms between shadow-map refreshes
+  // (the sun and the level never move, so only machines' shadows go stale), and the pixel budget.
+  var SL_MOBILE =
+      /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) ||
+      (navigator.maxTouchPoints > 1 && Math.min(screen.width, screen.height) < 900),
+    SL_TIER = {
+      test: { shTaps: 5, shSearch: 4, shMs: 66, px: 23e5 },
+      lite: { shTaps: 5, shSearch: 4, shMs: 100, px: 6e5 },
+      low: { shTaps: 5, shSearch: 4, shMs: 66, px: 1e6 },
+      medium: { shTaps: 10, shSearch: 6, shMs: 40, px: 15e5 },
+      high: { shTaps: 16, shSearch: 8, shMs: 0, px: 23e5 },
+      ultra: { shTaps: 16, shSearch: 8, shMs: 0, px: 37e5 },
+    },
+    // a phone GPU pays most for extra full-scene passes and pixels: no reflection pass, no MSAA, fewer pixels
+    SL_PHONE = {
+      lite: { px: 45e4 },
+      low: { px: 75e4, volSteps: 8 },
+      medium: { px: 105e4, volSteps: 12, msaa: 0, planar: 0 },
+      high: { px: 14e5, volSteps: 16, msaa: 0, planar: 0, shadow: 3072, motionBlur: !1, shTaps: 10, shSearch: 6, shMs: 33 },
+      ultra: { px: 2e6, msaa: 2 },
+    };
+  for (let k in Pr) (Object.assign(Pr[k], SL_TIER[k] || SL_TIER.high), SL_MOBILE && Object.assign(Pr[k], SL_PHONE[k] || {}));
   function zy(i) {
     if (i && Pr[i]) return { ...Pr[i] };
     if (
@@ -2043,6 +2065,151 @@ ${fe}`,
     };
     return J;
   }
+  // ---- level geometry pass (Nov 2026) ----
+  // The level arrives as a dozen huge merged meshes, mostly un-indexed, each spanning the whole port, so
+  // nothing is ever culled and every corner is shaded three times over. Weld identical vertices and cut
+  // each big mesh into ground cells so the renderer can skip what is behind or beside the camera.
+  function slOptimiseLevel(scene) {
+    let t0 = performance.now(),
+      targets = [],
+      before = 0,
+      vBefore = 0,
+      vAfter = 0,
+      made = 0;
+    scene.traverse((o) => {
+      if (!o.isMesh || o.isInstancedMesh || o.isSkinnedMesh || !o.parent || o.parent.name !== "level-merged") return;
+      let g = o.geometry;
+      if (!g || Array.isArray(o.material) || g.groups.length || Object.keys(g.morphAttributes || {}).length) return;
+      let pos = g.attributes.position;
+      if (!pos || pos.isInterleavedBufferAttribute) return;
+      for (let k in g.attributes) {
+        let a = g.attributes[k];
+        if (a.isInterleavedBufferAttribute || a.count !== pos.count || !(a.array instanceof Float32Array)) return;
+      }
+      let tris = (g.index ? g.index.count : pos.count) / 3;
+      tris >= 4e3 && targets.push(o);
+    });
+    for (let o of targets) {
+      let g = o.geometry,
+        names = Object.keys(g.attributes),
+        attrs = names.map((k) => g.attributes[k]),
+        sizes = attrs.map((a) => a.itemSize),
+        arrs = attrs.map((a) => a.array),
+        P = g.attributes.position.array,
+        idx = g.index ? g.index.array : null,
+        nTri = (idx ? idx.length : P.length / 3) / 3,
+        vi = (c) => (idx ? idx[c] : c);
+      before += nTri;
+      vBefore += idx ? P.length / 3 : nTri * 3;
+      g.computeBoundingBox();
+      let bb = g.boundingBox,
+        sx = bb.max.x - bb.min.x,
+        sz = bb.max.z - bb.min.z,
+        split = nTri >= 16e3,
+        nx = split ? Math.max(1, Math.min(4, Math.round(sx / 22))) : 1,
+        nz = split ? Math.max(1, Math.min(4, Math.round(sz / 22))) : 1,
+        cellOf = new Uint8Array(nTri),
+        counts = new Uint32Array(nx * nz);
+      for (let t = 0; t < nTri; t++) {
+        let a = vi(t * 3) * 3,
+          b = vi(t * 3 + 1) * 3,
+          c = vi(t * 3 + 2) * 3,
+          cx = (P[a] + P[b] + P[c]) / 3,
+          cz = (P[a + 2] + P[b + 2] + P[c + 2]) / 3,
+          ix = Math.min(nx - 1, Math.max(0, Math.floor(((cx - bb.min.x) / (sx || 1)) * nx))),
+          iz = Math.min(nz - 1, Math.max(0, Math.floor(((cz - bb.min.z) / (sz || 1)) * nz))),
+          id = iz * nx + ix;
+        ((cellOf[t] = id), counts[id]++);
+      }
+      for (let cell = 0; cell < nx * nz; cell++) {
+        let n = counts[cell];
+        if (!n) continue;
+        // open-addressed hash on the exact attribute bits: equal vertices collapse to one
+        let cap = 1;
+        while (cap < n * 6) cap <<= 1;
+        let table = new Int32Array(cap).fill(-1),
+          src = new Uint32Array(n * 3),
+          outIdx = new Uint32Array(n * 3),
+          nv = 0,
+          w = 0,
+          u32 = arrs.map((a) => new Uint32Array(a.buffer, a.byteOffset, a.length));
+        for (let t = 0; t < nTri; t++) {
+          if (cellOf[t] !== cell) continue;
+          for (let c = 0; c < 3; c++) {
+            let v = vi(t * 3 + c),
+              h = 2166136261;
+            for (let k = 0; k < u32.length; k++) {
+              let s = sizes[k],
+                o0 = v * s;
+              for (let q = 0; q < s; q++) h = Math.imul(h ^ u32[k][o0 + q], 16777619);
+            }
+            let slot = (h >>> 0) & (cap - 1),
+              found = -1;
+            for (;;) {
+              let e = table[slot];
+              if (e < 0) break;
+              let sv = src[e],
+                same = !0;
+              for (let k = 0; k < u32.length && same; k++) {
+                let s = sizes[k],
+                  a0 = sv * s,
+                  b0 = v * s;
+                for (let q = 0; q < s; q++)
+                  if (u32[k][a0 + q] !== u32[k][b0 + q]) {
+                    same = !1;
+                    break;
+                  }
+              }
+              if (same) {
+                found = e;
+                break;
+              }
+              slot = (slot + 1) & (cap - 1);
+            }
+            (found < 0 && ((found = nv), (src[nv] = v), (table[slot] = nv), nv++), (outIdx[w++] = found));
+          }
+        }
+        let ng = new g.constructor();
+        for (let k = 0; k < names.length; k++) {
+          let s = sizes[k],
+            from = arrs[k],
+            to = new Float32Array(nv * s);
+          for (let v = 0; v < nv; v++) {
+            let a0 = src[v] * s,
+              b0 = v * s;
+            for (let q = 0; q < s; q++) to[b0 + q] = from[a0 + q];
+          }
+          ng.setAttribute(names[k], new attrs[k].constructor(to, s, attrs[k].normalized));
+        }
+        let IA = nv < 65536 ? Uint16Array : Uint32Array,
+          ia = new IA(outIdx.length);
+        ia.set(outIdx);
+        let IC = g.index ? g.index.constructor : null;
+        (ng.setIndex(IC ? new IC(ia, 1) : Array.from(ia)), ng.computeBoundingSphere(), ng.computeBoundingBox());
+        let m = new o.constructor(ng, o.material);
+        ((m.name = o.name || "level-cell"),
+          (m.castShadow = o.castShadow),
+          (m.receiveShadow = o.receiveShadow),
+          (m.layers.mask = o.layers.mask),
+          (m.renderOrder = o.renderOrder),
+          (m.userData = o.userData),
+          (m.matrixAutoUpdate = o.matrixAutoUpdate),
+          m.matrix.copy(o.matrix),
+          m.matrixWorld.copy(o.matrixWorld),
+          o.customDepthMaterial && (m.customDepthMaterial = o.customDepthMaterial),
+          o.customDistanceMaterial && (m.customDistanceMaterial = o.customDistanceMaterial),
+          (m.frustumCulled = !0),
+          o.parent.add(m),
+          (vAfter += nv),
+          made++);
+      }
+    }
+    for (let o of targets) (o.parent.remove(o), o.geometry.dispose());
+    console.info(
+      `[render] level geometry: ${targets.length} meshes -> ${made} cells, ${Math.round(before / 1e3)}k triangles, vertices ${Math.round(vBefore / 1e3)}k -> ${Math.round(vAfter / 1e3)}k in ${Math.round(performance.now() - t0)} ms`,
+    );
+    window.__levelOpt = { meshes: targets.length, cells: made, tris: before, vBefore, vAfter, ms: performance.now() - t0 };
+  }
   var Jy = 2,
     Ky = 1;
   async function Hg(i) {
@@ -2117,13 +2284,15 @@ ${fe}`,
       (h.shadow.radius = 1),
       (h.shadow.autoUpdate = !0),
       r.add(h, h.target));
-    let d = !1;
+    let d = !1,
+      slShTaps = "";
     try {
-      d = qy(f, { taps: i.quality.name === "low" || i.quality.name === "lite" ? 10 : 16, searchTaps: 8 });
+      d = qy(f, { taps: i.quality.shTaps || 16, searchTaps: i.quality.shSearch || 8 });
+      slShTaps = (i.quality.shTaps || 16) + ":" + (i.quality.shSearch || 8);
     } catch (ie) {
       console.warn("[render] soft shadows unavailable: " + ie);
     }
-    let v = 6,
+    let v = SL_MOBILE ? 3 : 6,
       g = [];
     for (let ie = 0; ie < v; ie++) {
       let F = new Qr(16777215, 0, 12, 2);
@@ -2324,9 +2493,8 @@ ${fe}`,
         (i.quality.name === "ultra" ||
           e.shot ||
           !h.shadow.map ||
-          (i.quality.name === "lite" || i.quality.name === "low"
-            ? performance.now() - (N.shT || 0) > (i.quality.name === "lite" ? 99 : 49) &&
-              (N.shT = performance.now())
+          (i.quality.shMs
+            ? performance.now() - (N.shT || 0) > i.quality.shMs - 1 && (N.shT = performance.now())
             : (T & 1) === 0)) &&
           (n.shadowMap.needsUpdate = !0),
         n.render(r, a),
@@ -2441,6 +2609,11 @@ ${fe}`,
           }
         },
         async onLevelReady() {
+          try {
+            e.levelopt !== "0" && slOptimiseLevel(r);
+          } catch (ie) {
+            console.error("[render] level optimise failed: " + ((ie && ie.stack) || ie));
+          }
           n.shadowMap.needsUpdate = !0;
           try {
             K();
@@ -2468,6 +2641,20 @@ ${fe}`,
         },
         setQuality(ie) {
           i.quality = ie;
+          let tk = (ie.shTaps || 16) + ":" + (ie.shSearch || 8);
+          if (d && tk !== slShTaps) {
+            // the soft-shadow kernel is compiled into every lit material: rebuild them for the new tap counts
+            try {
+              (qy(f, { taps: ie.shTaps || 16, searchTaps: ie.shSearch || 8 }), (slShTaps = tk));
+              let seen = new Set();
+              r.traverse((o) => {
+                let ms = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : [];
+                for (let m of ms) m && m.lights && !seen.has(m) && (seen.add(m), m.dispose(), (m.needsUpdate = !0));
+              });
+            } catch (er) {
+              console.warn("[render] shadow kernel rebuild failed: " + er);
+            }
+          }
           let F = p();
           h.shadow.mapSize.x !== F &&
             (h.shadow.mapSize.set(F, F),
@@ -2486,9 +2673,11 @@ ${fe}`,
             (n.setPixelRatio(X), n.setSize(ie, F, !1));
             let re = ne * S.scale,
               $ =
+                i.quality.px ||
                 { lite: 6e5, low: 1e6, medium: 15e5, high: 23e5, ultra: 37e5 }[
                   i.quality.name
-                ] || 23e5,
+                ] ||
+                23e5,
               ue = ie * X * F * X * re * re;
             ue > $ && (re *= Math.sqrt($ / ue));
             let me = Math.max(16, Math.round(ie * X * re)),
@@ -25041,6 +25230,23 @@ void main() {
       Wo(t, 1.2)
     );
   }
+  // boots and kit scraping across wet concrete: a low rumble, a gritty mid band that fades, and a few skips
+  function slSlideGen(i, e) {
+    let t = St(i, 1.05);
+    (Se(t, at(i, e, 1, 0.34, { lp: 380, att: 0.03 }), 0, 0.75, i),
+      Se(t, at(i, e, 0.95, 0.3, { bp: Xt(e, 950, 1350), q: 0.6, att: 0.05 }), 0, 0.9, i),
+      Se(t, at(i, e, 0.8, 0.22, { hp: 3000, att: 0.04 }), 0.02, 0.3, i),
+      Se(t, ei(i, 0.12, 110, 50, 0.03, 0.05, 0.002), 0, 0.5, i));
+    for (let n = 0; n < 7; n++)
+      Se(
+        t,
+        at(i, e, 0.03, 0.008, { bp: Xt(e, 1800, 3600), q: 1.5 }),
+        0.06 + n * 0.11 + Xt(e, 0, 0.05),
+        Xt(e, 0.12, 0.3) * (1 - n / 9),
+        i,
+      );
+    return Wo(t, 1.15);
+  }
   function u8(i, e) {
     let t = St(i, 0.26);
     return (
@@ -26534,6 +26740,7 @@ void main() {
       },
       land: { gen: c8, n: 1, sr: Xn, peak: 0.7, bus: "near", max: 2, pri: 4 },
       jump: { gen: u8, n: 1, sr: Xn, peak: 0.35, bus: "near", max: 2, pri: 3 },
+      slide: { gen: slSlideGen, n: 2, sr: Xn, peak: 0.6, bus: "near", max: 1, pri: 4 },
       hurt: { gen: h8, n: 1, sr: Xn, peak: 0.85, bus: "dry", max: 2, pri: 8 },
       ear_ring: {
         gen: f8,
@@ -27817,7 +28024,7 @@ void main() {
         });
       }),
       ln("player:jump", () => ze("jump", { gain: 0.8 })),
-      ln("player:slide", () => (ze("land", { gain: 0.75, pitch: 0.7 }), ze("jump", { gain: 0.9, pitch: 0.6 }))),
+      ln("player:slide", () => (ze("slide", { gain: 1 }), ze("jump", { gain: 0.7, pitch: 0.7 }))),
       ln("player:land", (te) => {
         let he = pi(0.35 + (Math.abs(te.speed) || 4) / 10, 0.35, 1);
         (ze("land", { gain: he }),
@@ -28290,6 +28497,7 @@ void main() {
       Escape: "pause",
       KeyP: "pause",
       KeyQ: "alt",
+      KeyG: "grenade",
       Enter: "fire",
       NumpadEnter: "fire",
       ArrowLeft: "turnL",
@@ -28537,7 +28745,7 @@ void main() {
       let P = document.createElement("div");
       ((P.className = "touch"),
         (P.innerHTML =
-          '<div class="t-stick"><i class="t-ring"></i><i class="t-nub"></i></div><button class="t-btn t-fire" data-a="fire" aria-label="Fire"><span>FIRE</span></button><button class="t-btn t-ads" data-a="ads" aria-label="Aim"><span>AIM</span></button><button class="t-btn t-reload" data-a="reload" aria-label="Reload"><span>RLD</span></button><button class="t-btn t-jump" data-a="jump" aria-label="Jump"><span>JUMP</span></button><button class="t-btn t-interact" data-a="interact" aria-label="Interact"><span>USE</span></button><button class="t-btn t-crouch" data-a="crouch" aria-label="Crouch"><span>CRCH</span></button><button class="t-btn t-melee" data-a="melee" aria-label="Melee"><span>HIT</span></button><button class="t-btn t-pause" data-a="pause" aria-label="Pause"><span>II</span></button>'),
+          '<div class="t-stick"><i class="t-ring"></i><i class="t-nub"></i></div><button class="t-btn t-fire" data-a="fire" aria-label="Fire"><span>FIRE</span></button><button class="t-btn t-ads" data-a="ads" aria-label="Aim"><span>AIM</span></button><button class="t-btn t-reload" data-a="reload" aria-label="Reload"><span>RLD</span></button><button class="t-btn t-jump" data-a="jump" aria-label="Jump"><span>JUMP</span></button><button class="t-btn t-interact" data-a="interact" aria-label="Interact"><span>USE</span></button><button class="t-btn t-crouch" data-a="crouch" aria-label="Crouch"><span>CRCH</span></button><button class="t-btn t-melee" data-a="melee" aria-label="Melee"><span>HIT</span></button><button class="t-btn t-nade" data-a="grenade" aria-label="Grenade"><span>NADE</span></button><button class="t-btn t-pause" data-a="pause" aria-label="Pause"><span>II</span></button>'),
         t.appendChild(P));
       let V = (L) => P.querySelector(L),
         Y = {
@@ -28552,6 +28760,7 @@ void main() {
             interact: V(".t-interact"),
             crouch: V(".t-crouch"),
             melee: V(".t-melee"),
+            grenade: V(".t-nade"),
             pause: V(".t-pause"),
           },
         };
@@ -28685,6 +28894,7 @@ void main() {
         1: "crouch",
         2: "reload",
         3: "interact",
+        4: "grenade",
         5: "melee",
         6: "ads",
         7: "fire",
@@ -32439,6 +32649,10 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
         get meleeBusy() {
           return k.melee >= 0;
         },
+        // off-hand throw: the rifle dips and rolls away while the arm goes over the top
+        throwAnim() {
+          return k.reload || k.melee >= 0 ? !1 : ((k.melee = 0), (k.mThrow = !0), (k.inspect = -1), (k.idleT = 0), !0);
+        },
         addAmmo(Me) {
           ve.reserve += Me;
         },
@@ -32741,12 +32955,15 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
           Je > 3.5 && ((k.inspect = -1), (k.idleT = 0)));
       }
       let mW = 0,
-        mS = 0;
+        mS = 0,
+        mT = 0;
       if (k.melee >= 0) {
         let Je = (k.melee += Me);
-        ((mW = Yo(Je / 0.08) * (1 - Yo((Je - 0.07) / 0.07))),
-          (mS = Yo((Je - 0.07) / 0.08) * (1 - Yo((Je - 0.19) / 0.26))),
-          Je > 0.46 && (k.melee = -1));
+        (k.mThrow
+          ? ((mT = Yo(Je / 0.1) * (1 - Yo((Je - 0.2) / 0.24))), Je > 0.46 && ((k.melee = -1), (k.mThrow = !1)))
+          : ((mW = Yo(Je / 0.08) * (1 - Yo((Je - 0.07) / 0.07))),
+            (mS = Yo((Je - 0.07) / 0.08) * (1 - Yo((Je - 0.19) / 0.26))),
+            Je > 0.46 && (k.melee = -1)));
       }
       ((ve.state = k.reload
         ? "reloading"
@@ -32834,7 +33051,8 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
           ge * 0.004 * Le -
           0.035 * $i +
           0.03 * mW -
-          0.13 * mS,
+          0.13 * mS +
+          0.05 * mT,
         gt =
           bi(eu.p[1], qv.p[1], ke) +
           tu.p[1] * Ue +
@@ -32846,7 +33064,8 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
           k.bump.x * 0.6 +
           0.045 * $i -
           0.015 * mW +
-          0.045 * mS,
+          0.045 * mS -
+          0.11 * mT,
         Ot =
           bi(eu.p[2], qv.p[2], ke) +
           tu.p[2] * Ue +
@@ -32868,7 +33087,8 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
           k.bump.x * 1.5 +
           0.3 * $i +
           0.12 * mW -
-          0.22 * mS,
+          0.22 * mS -
+          0.3 * mT,
         $t =
           eu.r[1] * Le +
           tu.r[1] * Ue +
@@ -32893,7 +33113,8 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
           0.75 * Un +
           0.55 * zo +
           0.15 * mW +
-          0.7 * mS +
+          0.7 * mS -
+          0.45 * mT +
           Math.sin(he * 0.5) * 0.004 * te;
       (e.position.set(it, gt, Ot), e.rotation.set(xn, $t, Ht, "YXZ"));
     }
@@ -36822,6 +37043,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
     <div><dt>Sprint</dt><dd><kbd>Shift</kbd></dd></div>
     <div><dt>Crouch</dt><dd><kbd>C</kbd> or <kbd>Ctrl</kbd></dd></div>
     <div><dt>Melee / takedown</dt><dd><kbd>F</kbd> or middle button</dd></div>
+    <div><dt>Grenade</dt><dd><kbd>G</kbd></dd></div>
     <div><dt>Pause</dt><dd><kbd>Esc</kbd> or <kbd>P</kbd></dd></div>
   </dl>`,
     ZC = `
@@ -36836,6 +37058,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
     <div><dt>Sprint</dt><dd>Push the stick fully forward</dd></div>
     <div><dt>Crouch</dt><dd>CRCH toggles (JUMP stands up)</dd></div>
     <div><dt>Melee / takedown</dt><dd>HIT</dd></div>
+    <div><dt>Grenade</dt><dd>NADE</dd></div>
   </dl>`;
   function pM(i, e) {
     let t = document.getElementById("ui"),
@@ -36863,7 +37086,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
       </div>
       <aside class="m-legend" aria-label="Controls at a glance">
         <div><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Move</span><span><kbd>Mouse</kbd> Look</span><span><kbd>LMB</kbd> Fire</span><span><kbd>RMB</kbd> Aim</span><span><kbd>R</kbd> Reload</span></div>
-        <div><span><kbd>E</kbd> Cut relay</span><span><kbd>F</kbd> Melee</span><span><kbd>Shift</kbd> Sprint</span><span><kbd>C</kbd> Crouch \xB7 slide</span><span><kbd>Esc</kbd> Pause</span></div>
+        <div><span><kbd>E</kbd> Cut relay</span><span><kbd>F</kbd> Melee</span><span><kbd>G</kbd> Grenade</span><span><kbd>Shift</kbd> Sprint</span><span><kbd>C</kbd> Crouch \xB7 slide</span><span><kbd>Esc</kbd> Pause</span></div>
         <div class="lg-touch"><em>Touch</em><span>Left thumb moves</span><span>Right thumb looks</span><span>Fire \xB7 Aim \xB7 Crouch \xB7 Hit on screen</span></div>
       </aside>
     </section>
@@ -36936,7 +37159,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
         <p class="panel-note">If the browser will not capture the mouse, hold a mouse button and drag to look (left also fires, right also aims). Arrow keys or <kbd>I</kbd><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd> turn, <kbd>Enter</kbd> fires.</p>
         <h3>Touch</h3>${ZC}
         <h3>Gamepad</h3>
-        <p class="panel-note">Sticks move and look \xB7 RT fire \xB7 LT aim \xB7 A jump \xB7 B crouch \xB7 X reload \xB7 Y cut relay \xB7 RB or R3 melee \xB7 L3 sprint \xB7 Start pause. Crouch while sprinting to slide. Aim assist pulls the sight onto machines (Settings). Sprint and crouch can be hold, toggle or (sprint) automatic in Settings. In menus: D-pad or stick to move, A to select, B to go back. The sight slows slightly over a target on touch and pad.</p>
+        <p class="panel-note">Sticks move and look \xB7 RT fire \xB7 LT aim \xB7 A jump \xB7 B crouch \xB7 X reload \xB7 Y cut relay \xB7 RB or R3 melee \xB7 LB grenade \xB7 L3 sprint \xB7 Start pause. Crouch while sprinting to slide. Aim assist pulls the sight onto machines (Settings). Sprint and crouch can be hold, toggle or (sprint) automatic in Settings. In menus: D-pad or stick to move, A to select, B to go back. The sight slows slightly over a target on touch and pad.</p>
       </div>
     </div>
 
@@ -37313,6 +37536,9 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
         intelSaid: !1,
         lastEng: -99,
         quiet: 0,
+        nades: 0,
+        nadeCd: 0,
+        nadeLive: [],
       },
       tmpA = new W(),
       tmpB = new W(),
@@ -37411,7 +37637,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
       }
       ctx.setIntel(0, st.intelItems.length);
     }
-    function dropAmmo(pos, amount) {
+    function dropAmmo(pos, amount, nade) {
       if (st.drops.length >= 8) {
         let old = st.drops.shift();
         removeItem(old);
@@ -37419,7 +37645,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
       let y = groundAt(pos.x, Math.max(pos.y, 0) + 1, pos.z),
         m = makePickup("ammo");
       (m.g.position.set(pos.x, y + 0.2, pos.z),
-        st.drops.push({ pos: new W(pos.x, y, pos.z), mesh: m, amount, life: 75, t: 0 }));
+        st.drops.push({ pos: new W(pos.x, y, pos.z), mesh: m, amount, nade, life: 75, t: 0 }));
     }
     i.events.on("enemy:killed", (k) => {
       if (ctx.state() !== "playing" || !k || !k.pos) return;
@@ -37427,7 +37653,8 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
       if (!hound && Math.random() > 0.5) return;
       let p = k.pos.clone ? k.pos.clone() : new W(k.pos.x, k.pos.y, k.pos.z),
         amt = Math.round((hound ? 30 : 15) * diff.ammo);
-      setTimeout(() => ctx.state() === "playing" && dropAmmo(p, amt), hound ? 700 : 1600);
+      let nd = hound && Math.random() < 0.45;
+      setTimeout(() => ctx.state() === "playing" && dropAmmo(p, amt, nd), hound ? 700 : 1600);
     });
     i.events.on("enemy:alert", (k) => {
       ctx.state() === "playing" && k && !k.noise && (st.spotted++, (st.everSpotted = !0));
@@ -37488,6 +37715,90 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
       } else {
         let killed = best.damage(55, best.pos, dir, "body") === !0;
         i.events.emit("player:hitEnemy", { enemy: best, part: "body", killed, weak: !1 });
+      }
+    }
+    // ---- grenades: G / LB / NADE. Thrown on an arc, bounce, and go off two seconds later ----
+    let NADE = { start: 2, max: 3, fuse: 2, speed: 15, lift: 3.6, gravity: 17, bounce: 0.36, radius: 7, damage: 225, cd: 0.9 },
+      nadeGeo = new T3.SphereGeometry(0.075, 10, 8),
+      nadeGlow = mk(16729390, 6),
+      nadeEl = document.createElement("div");
+    ((nadeEl.className = "sl-nades"),
+      (nadeEl.innerHTML = "<span>Grenades</span><b>0</b>"),
+      (hud.root || document.getElementById("ui")).appendChild(nadeEl));
+    function nadeHud() {
+      nadeEl.querySelector("b").textContent = String(st.nades);
+      nadeEl.classList.toggle("none", st.nades <= 0);
+      let tb = document.querySelector(".t-nade span");
+      tb && (tb.textContent = "NADE " + st.nades);
+    }
+    function throwNade() {
+      if (st.nades <= 0) return void ((st.nadeCd = 0.3), i.audio && i.audio.play && i.audio.play("rifle_dry", { gain: 0.6 }));
+      let w = i.weapon;
+      if (w && w.throwAnim && !w.throwAnim()) return;
+      (st.nades--, (st.nadeCd = NADE.cd), nadeHud());
+      let f = player.forward,
+        g = new T3.Group(),
+        body = new T3.Mesh(nadeGeo, caseMat),
+        lamp = new T3.Mesh(boxGeo, nadeGlow);
+      (lamp.scale.set(0.05, 0.05, 0.05), (lamp.position.y = 0.075), g.add(body, lamp), i.scene.add(g));
+      let pos = new W().copy(player.eye).addScaledVector(f, 0.45);
+      pos.y -= 0.12;
+      let vel = new W(f.x * NADE.speed + player.vel.x * 0.6, f.y * NADE.speed + NADE.lift, f.z * NADE.speed + player.vel.z * 0.6);
+      (g.position.copy(pos),
+        st.nadeLive.push({ g, lamp, pos, vel, t: NADE.fuse, rest: !1, spin: 9 }),
+        i.audio && i.audio.play && i.audio.play("jump", { gain: 0.9, pitch: 1.35 }),
+        player.addRecoil(0.02, -0.015));
+    }
+    function boom(n) {
+      (n.g.parent && n.g.parent.remove(n.g), (n.dead = !0));
+      let p = n.pos.clone();
+      p.y += 0.15;
+      try {
+        (i.fx && i.fx.explosion && i.fx.explosion(p, 1.7), i.combat && i.combat.explode && i.combat.explode(p, NADE.radius, NADE.damage, "player"));
+      } catch (er) {
+        console.error("[sl] grenade", er);
+      }
+    }
+    function updateNades(dt) {
+      st.nadeCd -= dt;
+      input.pressed("grenade") && st.nadeCd <= 0 && player.alive && throwNade();
+      for (let k = st.nadeLive.length - 1; k >= 0; k--) {
+        let n = st.nadeLive[k];
+        n.t -= dt;
+        if (!n.rest) {
+          n.vel.y -= NADE.gravity * dt;
+          let sp = n.vel.length(),
+            step = sp * dt,
+            hit = null;
+          if (sp > 1e-3) {
+            tmpA.copy(n.vel).multiplyScalar(1 / sp);
+            try {
+              hit = i.physics.raycast(n.pos, tmpA, step + 0.08);
+            } catch {}
+          }
+          if (hit && hit.surface === "water") {
+            (i.audio && i.audio.play && i.audio.play("impact_water", { pos: hit.point, gain: 0.8 }),
+              n.g.parent && n.g.parent.remove(n.g),
+              st.nadeLive.splice(k, 1));
+            continue;
+          }
+          if (hit) {
+            let nr = hit.normal,
+              vn = n.vel.dot(nr);
+            (n.pos.copy(hit.point).addScaledVector(nr, 0.085),
+              n.vel.addScaledVector(nr, -(1 + NADE.bounce) * vn),
+              (n.vel.x *= 0.72),
+              (n.vel.z *= 0.72),
+              (n.spin *= 0.6),
+              Math.abs(vn) > 1.2 &&
+                i.audio && i.audio.play && i.audio.play("shell_bounce", { pos: n.pos, gain: Math.min(1, Math.abs(vn) / 6), pitch: 0.55 }),
+              nr.y > 0.6 && n.vel.length() < 0.9 && ((n.rest = !0), n.vel.set(0, 0, 0)));
+          } else n.pos.addScaledVector(n.vel, dt);
+          (n.g.position.copy(n.pos), (n.g.rotation.x += n.spin * dt), (n.g.rotation.z += n.spin * 0.6 * dt));
+        }
+        // the lamp blinks faster as the fuse runs down
+        n.lamp.visible = Math.sin((NADE.fuse - n.t) * (8 + (NADE.fuse - n.t) * 14)) > -0.2;
+        n.t <= 0 && (boom(n), st.nadeLive.splice(k, 1));
       }
     }
     // ---- stealth meter ----
@@ -37599,9 +37910,11 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
         it.mesh.inner[0].parent.rotation.y = it.t * 1.4;
         it.mesh.beam.material.opacity = 0.12 + 0.06 * Math.sin(it.t * 4);
         let near = Math.hypot(it.pos.x - px, it.pos.z - pz) < 1.5 && Math.abs(it.pos.y - py) < 1.6;
-        if (near && w && w.addAmmo && w.reserve < 240) {
+        if (near && w && w.addAmmo && (w.reserve < 240 || (it.nade && st.nades < NADE.max))) {
           let a = Math.min(it.amount, 240 - w.reserve);
-          (w.addAmmo(a), hud.message(`+${a} rounds`, 1.4), removeItem(it), st.drops.splice(k, 1),
+          let gn = it.nade && st.nades < NADE.max;
+          gn && (st.nades++, nadeHud());
+          (w.addAmmo(a), hud.message(gn ? (a > 0 ? `+${a} rounds \xB7 +1 grenade` : "+1 grenade") : `+${a} rounds`, 1.6), removeItem(it), st.drops.splice(k, 1),
             i.audio && i.audio.play && i.audio.play("reload_magin", { gain: 0.9 }));
           continue;
         }
@@ -37641,6 +37954,8 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
                 : { ...w },
           )));
         for (let it of st.drops) removeItem(it);
+        for (let n of st.nadeLive) n.g.parent && n.g.parent.remove(n.g);
+        ((st.nades = NADE.start), (st.nadeCd = 0), (st.nadeLive = []), nadeHud());
         Object.assign(st, { takedowns: 0, intel: 0, spotted: 0, everSpotted: !1, meleeCd: 0, meleeHit: 0, drops: [], susp: 0, intelSaid: !1, lastEng: -99, quiet: 0 });
         placeIntel();
         input.aimSlow = 1;
@@ -37654,6 +37969,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
         ((st.meleeCd -= dt),
           st.meleeHit > 0 && (st.meleeHit -= dt) <= 0 && player.alive && meleeStrike(),
           input.pressed("melee") && st.meleeCd <= 0 && player.alive && melee(),
+          updateNades(dt),
           updateMeter(dt),
           updateAim(dt),
           updatePickups(dt),
