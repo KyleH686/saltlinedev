@@ -7,7 +7,7 @@ Personal project for playing and for testing what Claude can build.
 ## Play on a phone, full screen
 
 1. Turn on GitHub Pages for this repo: **Settings → Pages → Build and deployment → Source: Deploy from a branch → Branch: `main`, folder `/ (root)` → Save**.
-2. After a minute the game is live at `https://kyleh686.github.io/Saltlinedev/`.
+2. After a minute the game is live at `https://kyleh686.github.io/saltlinedev/` (all lower case: Pages addresses are case-sensitive).
 3. **iPhone:** open that link in Safari, tap **Share → Add to Home Screen**. Launch it from the home-screen icon and it runs full screen with no browser bars.
 4. **Android:** open the link in Chrome, tap **⋮ → Add to Home screen / Install app**.
 
