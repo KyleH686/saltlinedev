@@ -4915,6 +4915,7 @@ void main(){ vec4 t = texture(tA, vUv); o = uSq > 0.5 ? vec4(t.rgb * t.rgb, t.a)
       paint_yellow: Xa(12159516),
       paint_orange: Xa(11751962),
       paint_white: Xa(12172214),
+      paint_sand: Xa(10323032),
       paint_grey: Xa(5922920),
       paint_teal: Xa(2055523),
       steel_galv: Nt("galv", { wet: aa }),
@@ -16643,6 +16644,7 @@ float metalnessFactor = metalness * slORM.b;
       map: "drywell",
       playerStart: { pos: mt(0, 0, 19.6), yaw: 0 },
       tower,
+      noFly: [{ x: 0, z: 0, r: 6, top: 16.6 }],
       objectives: SL_DEMO
         ? charges
         : [
@@ -16697,30 +16699,184 @@ float metalnessFactor = metalness * slORM.b;
     };
   }
   // a flatbed pickup, nose to the gate
+  // the extraction truck: a sand-coloured 4x4 flatbed, nose toward -x
   function slTruck(i, t, cx, cz) {
-    let b = (m, sx, sy, sz, x, y, z, o) => t.box(m, sx, sy, sz, cx + x, y, cz + z, o);
-    (b("steel_dark", 5.3, 0.22, 1.7, 0, 0.62, 0),
-      b("paint_white", 1.5, 0.75, 1.92, -2, 1.08, 0, { bevel: 0.06 }),
-      b("paint_white", 1.75, 0.95, 1.92, -0.45, 1.2, 0, { bevel: 0.05 }),
-      b("paint_white", 1.5, 0.7, 1.84, -0.4, 2, 0, { bevel: 0.1 }),
-      b("glass_dirty", 0.04, 0.52, 1.6, -1.17, 2, 0),
-      b("glass_dirty", 1.1, 0.5, 0.03, -0.4, 2.02, 0.925),
-      b("glass_dirty", 1.1, 0.5, 0.03, -0.4, 2.02, -0.925),
-      b("steel_dark", 2.6, 0.1, 1.94, 1.75, 0.8, 0),
-      b("paint_grey", 2.6, 0.5, 0.07, 1.75, 1.08, 0.94),
-      b("paint_grey", 2.6, 0.5, 0.07, 1.75, 1.08, -0.94),
-      b("paint_grey", 0.07, 0.5, 1.94, 3.02, 1.08, 0),
-      b("steel_dark", 0.12, 0.3, 2, -2.78, 0.62, 0, { bevel: 0.03 }),
-      b(i.mats.emissive(16774360, 4), 0.04, 0.14, 0.26, -2.76, 0.98, 0.72, { cast: !1 }),
-      b(i.mats.emissive(16774360, 4), 0.04, 0.14, 0.26, -2.76, 0.98, -0.72, { cast: !1 }),
-      b(i.mats.emissive(16716820, 3), 0.04, 0.12, 0.2, 3.07, 0.98, 0.8, { cast: !1 }),
-      b(i.mats.emissive(16716820, 3), 0.04, 0.12, 0.2, 3.07, 0.98, -0.8, { cast: !1 }));
-    for (let x of [-1.95, 1.7])
-      for (let z of [-0.86, 0.86]) (t.cyl("tire", 0.46, 0.3, cx + x, 0.46, cz + z, { axis: "z", seg: 18 }), t.cyl("steel_bare", 0.22, 0.32, cx + x, 0.46, cz + z, { axis: "z", seg: 12 }));
-    (t.place("crate_wood", cx + 1.3, cz + 0.2, 0.2, { seed: 91 }, 0.85, { noCol: !0 }),
-      t.place("jerry_can", cx + 2.4, cz - 0.5, 0.4, { seed: 92 }, 0.85, { noCol: !0 }),
-      t.col(cx - 2.85, 0, cz - 0.98, cx + 3.08, 1.4, cz + 0.98, "metal"),
-      t.col(cx - 1.3, 1.4, cz - 0.95, cx + 0.45, 2.36, cz + 0.95, "metal"));
+    let b = (m, sx, sy, sz, x, y, z, o) => t.box(m, sx, sy, sz, cx + x, y, cz + z, o),
+      c = (m, r, h, x, y, z, o) => t.cyl(m, r, h, cx + x, y, cz + z, o),
+      rod = (m, p, q, r) => t.rod(m, [cx + p[0], p[1], cz + p[2]], [cx + q[0], q[1], cz + q[2]], r),
+      // a side profile (x, y) pushed through the truck's width
+      ext = (m, pts, z0, z1, o = {}) => {
+        let sh = new ji();
+        pts.forEach(([x, y], k) => (k ? sh.lineTo(x, y) : sh.moveTo(x, y)));
+        sh.closePath();
+        let g = new rr(sh, { depth: z1 - z0, bevelEnabled: !1 });
+        return (g.translate(cx, 0, cz + z0), t.add(g, m, o));
+      },
+      lamp = (col, k) => i.mats.emissive(col, k),
+      BODY = "paint_sand",
+      HW = 0.92;
+    // chassis, axles, driveline
+    for (let z of [-0.42, 0.42]) b("steel_dark", 5.5, 0.16, 0.12, 0.15, 0.6, z);
+    for (let x of [-2.2, -0.6, 1, 2.7]) b("steel_dark", 0.1, 0.12, 0.84, x, 0.6, 0);
+    for (let x of [-1.85, 1.9]) (c("steel_dark", 0.07, 1.6, x, 0.5, 0, { axis: "z", seg: 8 }), c("steel_dark", 0.19, 0.3, x, 0.5, 0.05, { axis: "z", seg: 10 }));
+    (c("steel_dark", 0.045, 3.4, 0.05, 0.52, 0.05, { axis: "x", seg: 6 }),
+      c("steel_galv", 0.2, 0.95, 0.75, 0.62, 0.72, { axis: "x", seg: 12 }),
+      c("steel_rust", 0.045, 2.5, 1.85, 0.5, -0.66, { axis: "x", seg: 8 }),
+      c("steel_rust", 0.09, 0.6, 0.9, 0.5, -0.66, { axis: "x", seg: 10 }));
+    // cab and bonnet in one piece, front wheel arch cut out of the sill
+    ext(
+      BODY,
+      [
+        [-2.62, 0.7],
+        [-2.7, 0.95],
+        [-2.7, 1.3],
+        [-2.56, 1.42],
+        [-1.42, 1.5],
+        [-0.92, 2.2],
+        [-0.8, 2.26],
+        [0.35, 2.26],
+        [0.45, 2.18],
+        [0.45, 0.7],
+        [-1.2, 0.7],
+        [-1.27, 0.95],
+        [-1.5, 1.12],
+        [-2.2, 1.12],
+        [-2.43, 0.95],
+        [-2.5, 0.7],
+      ],
+      -HW,
+      HW,
+    );
+    // glass: windscreen, door windows, quarter lights, rear window (dark behind so it reads as a cabin)
+    (t.add($e(0.03, 0.8, 1.62), "steel_dark", { p: [cx - 1.182, 1.857, cz], r: [0, 0, -0.62], cast: !1 }),
+      t.add($e(0.03, 0.76, 1.56), "glass_dirty", { p: [cx - 1.196, 1.867, cz], r: [0, 0, -0.62], cast: !1 }),
+      rod("steel_dark", [-1.5, 1.52, 0.3], [-1.25, 1.84, 0.02], 0.012),
+      rod("steel_dark", [-1.5, 1.52, -0.3], [-1.25, 1.84, -0.58], 0.012));
+    for (let sz of [-1, 1]) {
+      let z = sz * HW,
+        zs = (a, bq) => (sz > 0 ? [z + a, z + bq] : [z - bq, z - a]);
+      (ext(
+        "steel_dark",
+        [
+          [-1.27, 1.56],
+          [-0.9, 2.12],
+          [-0.3, 2.12],
+          [-0.3, 1.56],
+        ],
+        ...zs(0, 0.008),
+        { cast: !1 },
+      ),
+        ext(
+          "glass_dirty",
+          [
+            [-1.22, 1.59],
+            [-0.88, 2.09],
+            [-0.33, 2.09],
+            [-0.33, 1.59],
+          ],
+          ...zs(0.008, 0.016),
+          { cast: !1 },
+        ),
+        b("steel_dark", 0.5, 0.56, 0.016, 0.03, 1.84, z, { cast: !1 }),
+        b("glass_dirty", 0.44, 0.5, 0.02, 0.03, 1.84, z + sz * 0.006, { cast: !1 }),
+        // door shut lines, handle, sill step, mirror, arch trim
+        b("steel_dark", 0.014, 0.8, 0.012, -1.3, 1.13, z, { cast: !1 }),
+        b("steel_dark", 0.014, 1.4, 0.012, -0.26, 1.42, z, { cast: !1 }),
+        b("steel_dark", 1.04, 0.014, 0.012, -0.78, 0.74, z, { cast: !1 }),
+        b("steel_bare", 0.13, 0.035, 0.035, -0.42, 1.42, z + sz * 0.02),
+        b("steel_galv", 1.55, 0.05, 0.24, -0.4, 0.6, sz * 1.02),
+        rod("steel_dark", [-0.95, 0.6, sz * 0.9], [-0.95, 0.72, sz * 0.9], 0.02),
+        rod("steel_dark", [0.15, 0.6, sz * 0.9], [0.15, 0.72, sz * 0.9], 0.02),
+        rod("steel_dark", [-1.3, 1.6, z], [-1.33, 1.7, z + sz * 0.16], 0.014),
+        b("steel_dark", 0.05, 0.24, 0.15, -1.34, 1.74, z + sz * 0.2, { bevel: 0.01 }),
+        ext(
+          "steel_dark",
+          [
+            [-1.14, 0.7],
+            [-1.22, 0.98],
+            [-1.47, 1.17],
+            [-2.23, 1.17],
+            [-2.48, 0.98],
+            [-2.56, 0.7],
+            [-2.5, 0.7],
+            [-2.43, 0.95],
+            [-2.2, 1.12],
+            [-1.5, 1.12],
+            [-1.27, 0.95],
+            [-1.2, 0.7],
+          ],
+          ...zs(-0.02, 0.07),
+        ));
+    }
+    b("steel_dark", 0.016, 0.42, 1.3, 0.455, 1.86, 0, { cast: !1 });
+    b("glass_dirty", 0.02, 0.36, 1.22, 0.462, 1.86, 0, { cast: !1 });
+    // nose: grille, lamps, bumper, bull bar, winch, tow eyes
+    b("steel_dark", 0.05, 0.4, 1.06, -2.71, 1.12, 0);
+    for (let y of [0.98, 1.07, 1.16, 1.25]) b("steel_bare", 0.02, 0.028, 0.98, -2.745, y, 0, { cast: !1 });
+    for (let sz of [-1, 1])
+      (b("steel_dark", 0.05, 0.26, 0.34, -2.71, 1.13, sz * 0.72),
+        c(lamp(16774360, 4), 0.1, 0.03, -2.745, 1.15, sz * 0.72, { axis: "x", seg: 14, cast: !1 }),
+        b(lamp(16749082, 2), 0.03, 0.06, 0.16, -2.74, 0.97, sz * 0.74, { cast: !1 }),
+        b("paint_red", 0.1, 0.1, 0.05, -2.96, 0.66, sz * 0.5),
+        rod("steel_dark", [-2.93, 0.72, sz * 0.46], [-2.93, 1.5, sz * 0.46], 0.035),
+        rod("steel_dark", [-2.93, 1.1, sz * 0.46], [-2.8, 1.1, sz * 0.92], 0.028));
+    (b("steel_dark", 0.24, 0.22, 2.02, -2.82, 0.74, 0, { bevel: 0.03 }),
+      rod("steel_dark", [-2.93, 1.5, -0.46], [-2.93, 1.5, 0.46], 0.035),
+      rod("steel_dark", [-2.93, 1.1, -0.46], [-2.93, 1.1, 0.46], 0.028),
+      c("steel_bare", 0.075, 0.5, -2.97, 0.8, 0, { axis: "z", seg: 10 }),
+      b("steel_dark", 0.14, 0.2, 0.08, -2.97, 0.8, 0.28),
+      b("steel_dark", 0.14, 0.2, 0.08, -2.97, 0.8, -0.28),
+      // bonnet vents, snorkel up the driver's pillar
+      b("steel_dark", 0.5, 0.02, 0.3, -2.05, 1.475, 0.45, { cast: !1 }),
+      b("steel_dark", 0.5, 0.02, 0.3, -2.05, 1.475, -0.45, { cast: !1 }),
+      rod("steel_dark", [-1.62, 1.4, -0.97], [-1.5, 1.56, -0.97], 0.05),
+      rod("steel_dark", [-1.5, 1.56, -0.97], [-0.98, 2.3, -0.97], 0.045),
+      b("steel_dark", 0.2, 0.16, 0.14, -1.02, 2.38, -0.97, { bevel: 0.02 }),
+      // roof: rack rails, light bar, whip aerial
+      b("steel_dark", 1, 0.03, 0.04, -0.2, 2.29, 0.74),
+      b("steel_dark", 1, 0.03, 0.04, -0.2, 2.29, -0.74),
+      b("steel_dark", 0.1, 0.06, 1.56, -0.66, 2.3, 0),
+      rod("steel_bare", [0.3, 2.26, 0.72], [0.52, 3.7, 0.72], 0.012));
+    for (let z of [-0.54, -0.18, 0.18, 0.54]) (c("steel_dark", 0.095, 0.11, -0.66, 2.42, z, { axis: "x", seg: 12 }), c(lamp(16774360, 3), 0.078, 0.02, -0.722, 2.42, z, { axis: "x", seg: 12, cast: !1 }));
+    // flatbed: deck, drop sides, tailgate, headboard frame with the spare lashed to it
+    (b("steel_worn", 2.62, 0.09, 1.98, 1.8, 1, 0),
+      b("steel_dark", 2.62, 0.1, 0.1, 1.8, 0.9, 0.6),
+      b("steel_dark", 2.62, 0.1, 0.1, 1.8, 0.9, -0.6),
+      b(BODY, 0.05, 0.46, 1.98, 3.09, 1.27, 0),
+      b("steel_dark", 0.06, 0.04, 1.98, 3.09, 1.52, 0),
+      b("steel_dark", 0.14, 0.16, 2, 3.1, 0.78, 0, { bevel: 0.02 }),
+      b("paint_white", 0.015, 0.12, 0.38, 3.175, 0.78, 0, { cast: !1 }));
+    for (let sz of [-1, 1]) {
+      (b(BODY, 2.62, 0.46, 0.05, 1.8, 1.27, sz * 0.965), b("steel_dark", 2.62, 0.04, 0.07, 1.8, 1.52, sz * 0.965));
+      for (let x of [0.52, 1.38, 2.24, 3.09]) b("steel_dark", 0.06, 0.5, 0.07, x, 1.27, sz * 0.975);
+      (b(lamp(16716820, 3), 0.03, 0.2, 0.12, 3.13, 1.2, sz * 0.86, { cast: !1 }),
+        b(lamp(16749082, 2), 0.03, 0.08, 0.12, 3.13, 1.36, sz * 0.86, { cast: !1 }),
+        b("tire", 0.03, 0.42, 0.36, 2.52, 0.62, sz * 0.82),
+        b("steel_dark", 1.3, 0.04, 0.4, 1.9, 1.06, sz * 0.82, { cast: !1 }),
+        rod("steel_dark", [0.58, 1.04, sz * 0.86], [0.58, 2.34, sz * 0.86], 0.035));
+    }
+    (rod("steel_dark", [0.58, 2.34, -0.86], [0.58, 2.34, 0.86], 0.035),
+      rod("steel_dark", [0.58, 1.75, -0.86], [0.58, 1.75, 0.86], 0.025),
+      rod("steel_dark", [0.58, 1.04, -0.86], [0.58, 2.34, 0], 0.02),
+      rod("steel_dark", [0.58, 1.04, 0.86], [0.58, 2.34, 0], 0.02),
+      c("tire", 0.44, 0.26, 0.76, 1.6, 0, { axis: "x", seg: 18 }),
+      c("steel_bare", 0.21, 0.28, 0.76, 1.6, 0, { axis: "x", seg: 12 }),
+      c("steel_dark", 0.08, 0.3, 0.76, 1.6, 0, { axis: "x", seg: 8 }));
+    for (let z of [-0.5, 0.5]) (c("steel_dark", 0.09, 0.1, 0.62, 2.44, z, { axis: "x", seg: 10 }), c(lamp(16774360, 2), 0.072, 0.02, 0.675, 2.44, z, { axis: "x", seg: 10, cast: !1 }));
+    // wheels: chunky tyre, dished rim, hub
+    for (let x of [-1.85, 1.9])
+      for (let sz of [-1, 1])
+        (c("tire", 0.5, 0.32, x, 0.5, sz * 0.82, { axis: "z", seg: 22 }),
+          c("tire", 0.515, 0.2, x, 0.5, sz * 0.82, { axis: "z", seg: 22 }),
+          c("steel_bare", 0.29, 0.33, x, 0.5, sz * 0.82, { axis: "z", seg: 16 }),
+          c("steel_dark", 0.22, 0.34, x, 0.5, sz * 0.82, { axis: "z", seg: 12 }),
+          c("steel_bare", 0.085, 0.4, x, 0.5, sz * 0.82, { axis: "z", seg: 8 }));
+    // load
+    (t.place("crate_wood", cx + 1.5, cz + 0.25, 0.2, { seed: 91 }, 1.045, { noCol: !0 }),
+      t.place("jerry_can", cx + 2.6, cz - 0.55, 0.4, { seed: 92 }, 1.045, { noCol: !0 }),
+      t.place("jerry_can", cx + 2.62, cz - 0.3, 0.1, { seed: 93 }, 1.045, { noCol: !0 }),
+      t.col(cx - 3.05, 0, cz - 1.02, cx + 3.2, 1.5, cz + 1.02, "metal"),
+      t.col(cx - 1.4, 1.5, cz - 0.95, cx + 0.62, 2.4, cz + 0.95, "metal"));
     return { door: { x: cx - 0.4, z: cz + 2.1 } };
   }
   // a nodding-donkey pumpjack that actually nods
@@ -35705,6 +35861,46 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
             (E = d.home.x + Math.cos(d.orbitA) * d.patrolR),
             (S = d.home.z + Math.sin(d.orbitA) * d.patrolR),
             (w = d.hoverFixed ? d.alt : d.home.y));
+      // Lattice towers are mostly air to a single feeler ray, so the level lists them as no-fly columns:
+      // goals inside one are moved out, a blocked straight line becomes a waypoint round the rim, and
+      // anything that still drifts inside the margin is pushed back out.
+      let nfx = 0,
+        nfz = 0,
+        NF = s.level && s.level.noFly;
+      if (NF && !d.hoverFixed)
+        for (let c of NF) {
+          if (d.pos.y > c.top + 1.2 && w > c.top + 1.2) continue;
+          let R = c.r + 1.8,
+            tx = E - c.x,
+            tz = S - c.z,
+            tl = Math.hypot(tx, tz);
+          tl < R && (tl < 0.01 && ((tx = d.orbitDir), (tz = 0), (tl = 1)), (E = c.x + (tx / tl) * R), (S = c.z + (tz / tl) * R), (tx = E - c.x), (tz = S - c.z));
+          let px = d.pos.x - c.x,
+            pz = d.pos.z - c.z,
+            pl = Math.hypot(px, pz) || 0.01;
+          if (pl < R) {
+            let k = Math.min(1.5, (R - pl) / 1.8);
+            ((nfx += (px / pl) * (10 + 34 * k)), (nfz += (pz / pl) * (10 + 34 * k)));
+            let vr = (d.vel.x * px + d.vel.z * pz) / pl;
+            vr < 0 && ((d.vel.x -= (px / pl) * vr * Math.min(1, 8 * y)), (d.vel.z -= (pz / pl) * vr * Math.min(1, 8 * y)));
+          }
+          let dx = E - d.pos.x,
+            dz = S - d.pos.z,
+            dl2 = dx * dx + dz * dz;
+          if (dl2 > 1) {
+            let u = bl(-(px * dx + pz * dz) / dl2, 0, 1),
+              qx = px + dx * u,
+              qz = pz + dz * u;
+            if (u > 0.02 && qx * qx + qz * qz < R * R) {
+              let pa = Math.atan2(pz, px),
+                da = K_(Math.atan2(tz, tx), pa),
+                side = Math.abs(da) < 0.05 || Math.abs(da) > 3 ? d.orbitDir : Math.sign(da),
+                wa = pa + side * Math.min(Math.abs(da) > 3 ? 0.9 : Math.abs(da), 0.9),
+                wr = Math.max(pl, R + 1.2);
+              ((E = c.x + Math.cos(wa) * wr), (S = c.z + Math.sin(wa) * wr));
+            }
+          }
+        }
       (w > d.ceil && (w = d.ceil),
         !d.hoverFixed && w < 2.2 && (w = 2.2),
         Co.set(
@@ -35712,17 +35908,24 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
           (w - d.pos.y) * 5 - d.vel.y * 3.6,
           (S - d.pos.z) * 2.2 - d.vel.z * 2.4,
         ),
+        (Co.x += nfx),
+        (Co.z += nfz),
         (d.feeler = (d.feeler + 1) % 3));
       let z = Math.hypot(d.vel.x, d.vel.z);
       if (d.feeler === 0 && z > 0.6) {
-        Bs.set(d.vel.x / z, 0, d.vel.z / z);
-        let P = 2.2 + z * 0.5,
+        // one feeler straight ahead, then one to each side in turn, so a corner is seen before it is clipped
+        d.whisk = ((d.whisk | 0) + 1) % 4;
+        let wa = d.whisk === 1 ? 0.5 : d.whisk === 3 ? -0.5 : 0,
+          cw = Math.cos(wa),
+          sw = Math.sin(wa);
+        Bs.set((d.vel.x * cw - d.vel.z * sw) / z, 0, (d.vel.x * sw + d.vel.z * cw) / z);
+        let P = (wa ? 1.6 : 2.2) + z * (wa ? 0.35 : 0.5),
           V = s.physics.raycast(d.pos, Bs, P);
         if (V) {
           let Y = 1 - V.dist / P;
-          (d.avoid.copy(V.normal).multiplyScalar(26 * Y),
-            (d.avoid.y += 9 * Y),
-            Y > 0.5 && ((d.orbitDir = -d.orbitDir), (d.flipT = 2.5)));
+          (wa ? d.avoid.addScaledVector(V.normal, 16 * Y) : d.avoid.copy(V.normal).multiplyScalar(26 * Y),
+            (d.avoid.y += (wa ? 4 : 9) * Y),
+            !wa && Y > 0.5 && ((d.orbitDir = -d.orbitDir), (d.flipT = 2.5)));
         }
       } else if (d.feeler === 1) {
         let P = s.physics.raycast(d.pos, J_, 2.4);
