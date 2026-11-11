@@ -27817,6 +27817,7 @@ void main() {
         });
       }),
       ln("player:jump", () => ze("jump", { gain: 0.8 })),
+      ln("player:slide", () => (ze("land", { gain: 0.75, pitch: 0.7 }), ze("jump", { gain: 0.9, pitch: 0.6 }))),
       ln("player:land", (te) => {
         let he = pi(0.35 + (Math.abs(te.speed) || 4) / 10, 0.35, 1);
         (ze("land", { gain: he }),
@@ -28456,6 +28457,7 @@ void main() {
         (P.target === e || r) && P.preventDefault();
       }),
       addEventListener("mousemove", (P) => {
+        (P.movementX || P.movementY) && (f.mouseT = performance.now());
         if (
           r &&
           (f.mode === "drag" &&
@@ -28794,6 +28796,7 @@ void main() {
         return;
       }
       ((f.gamepad = !0), (re = ue(Y.axes[0] || 0)), ($ = -ue(Y.axes[1] || 0)));
+      (Y.axes.some((k) => Math.abs(k) > 0.3) || Y.buttons.some((k) => k && k.pressed)) && (f.padT = performance.now());
       r || slPadNav(Y, P);
       let L = ue(Y.axes[2] || 0),
         Z = ue(Y.axes[3] || 0);
@@ -28873,6 +28876,14 @@ void main() {
       sprint: 6.4,
       crouch: 1.9,
       ads: 2.4,
+      slideBoost: 1.18,
+      slideFriction: 5.6,
+      slideMinStart: 4.6,
+      slideEnd: 2.2,
+      slideCooldown: 0.45,
+      slideEyeDrop: 0.2,
+      slideRoll: 0.05,
+      fovSlide: 4,
       accelGround: 34,
       decelGround: 26,
       accelAir: 9,
@@ -29092,6 +29103,13 @@ void main() {
         return q || "concrete";
       }
     }
+    let slPrevCrouch = !1,
+      slSpeed = 0,
+      slDx = 0,
+      slDz = 0,
+      slCd = 0,
+      slAir = 0,
+      slLast = null;
     function N(F) {
       let X = i.input,
         ne = i.weapon || {};
@@ -29115,7 +29133,23 @@ void main() {
           )),
           (C.yaw > Math.PI * 4 || C.yaw < -Math.PI * 4) &&
             (C.yaw = C.yaw % (Math.PI * 2))),
-        re && X.crouch
+        (slCd = Math.max(0, slCd - F)),
+        re &&
+          X.crouch &&
+          !slPrevCrouch &&
+          !C.sliding &&
+          slCd <= 0 &&
+          C.onGround &&
+          C.speed >= Mt.slideMinStart &&
+          ((C.sliding = !0),
+          (slSpeed = Math.max(C.speed, Mt.sprint) * Mt.slideBoost),
+          (slDx = C.vel.x / C.speed),
+          (slDz = C.vel.z / C.speed),
+          (slAir = 0),
+          i.events.emit("player:slide", { pos: C.pos })),
+        (slPrevCrouch = !!(re && X.crouch)),
+        C.sliding && (!re || !X.crouch) && slEnd(),
+        (re && X.crouch) || C.sliding
           ? (C.crouching = !0)
           : C.crouching && G() && (C.crouching = !1),
         (o = C.crouching ? Mt.crouchHeight : Mt.standHeight));
@@ -29152,9 +29186,13 @@ void main() {
       !C.onGround && !ee && ((Z = -C.vel.x), (J = -C.vel.z));
       let oe = Math.hypot(Z, J),
         fe = L * F;
-      (oe <= fe || oe < 1e-6
-        ? (C.onGround || ee) && ((C.vel.x = U.x), (C.vel.z = U.z))
-        : ((C.vel.x += (Z / oe) * fe), (C.vel.z += (J / oe) * fe)),
+      (C.sliding
+        ? ((slSpeed = Math.max(0, slSpeed - Mt.slideFriction * F)),
+          (C.vel.x = slDx * slSpeed),
+          (C.vel.z = slDz * slSpeed))
+        : oe <= fe || oe < 1e-6
+          ? (C.onGround || ee) && ((C.vel.x = U.x), (C.vel.z = U.z))
+          : ((C.vel.x += (Z / oe) * fe), (C.vel.z += (J / oe) * fe)),
         (r = C.onGround ? Mt.coyote : Math.max(0, r - F)),
         (a = re && X.pressed("jump") ? Mt.jumpBuffer : Math.max(0, a - F)),
         a > 0 &&
@@ -29163,6 +29201,7 @@ void main() {
           ((C.vel.y = rC),
           (a = 0),
           (r = 0),
+          C.sliding && slEnd(),
           (C.onGround = !1),
           (C.crouching = !1),
           (o = Mt.standHeight),
@@ -29208,12 +29247,18 @@ void main() {
           C.damage(12, null),
           i.events.emit("player:rescued", {})),
         (C.speed = Math.hypot(C.vel.x, C.vel.z)));
+      if (C.sliding) {
+        let ce = slLast ? Math.hypot(C.pos.x - slLast.x, C.pos.z - slLast.z) / Math.max(F, 1e-4) : slSpeed;
+        ((slAir = C.onGround ? 0 : slAir + F),
+          (slSpeed <= Mt.slideEnd || ce < slSpeed * 0.45 || slAir > 0.25) && slEnd());
+      }
+      (slLast || (slLast = C.pos.clone())).copy(C.pos);
       let se = C.crouching
         ? Mt.stride.crouch
         : C.sprinting
           ? Mt.stride.sprint
           : Mt.stride.walk;
-      if (C.onGround && C.speed > 0.5) {
+      if (C.onGround && C.speed > 0.5 && !C.sliding) {
         let ce = h;
         ((h += (C.speed * F) / se),
           Math.floor(h) > Math.floor(ce) &&
@@ -29233,7 +29278,7 @@ void main() {
         (d = -Math.cos(h * Math.PI * 2) * Mt.bobY * f),
         (p = Math.sin(h * Math.PI) * Mt.bobX * f));
       let k = C.vel.x * Y - C.vel.z * V;
-      ((v = kn(v, (-k / Mt.sprint) * Mt.rollStrafe * bi(1, 0.4, C.ads), 8, F)),
+      ((v = kn(v, C.sliding ? Mt.slideRoll : (-k / Mt.sprint) * Mt.rollStrafe * bi(1, 0.4, C.ads), 8, F)),
         (E += F),
         E > Mt.regenDelay &&
           C.health < C.maxHealth &&
@@ -29256,8 +29301,11 @@ void main() {
         (p *= 0.9),
         (d *= 0.9));
     }
+    function slEnd() {
+      ((C.sliding = !1), (slCd = Mt.slideCooldown));
+    }
     function K(F) {
-      let X = C.crouching ? Pi.crouchEye : Pi.eye,
+      let X = C.sliding ? Pi.crouchEye - Mt.slideEyeDrop : C.crouching ? Pi.crouchEye : Pi.eye,
         ne = 0,
         re = 0;
       if (C.alive) F > 0 ? (s = kn(s, X, Mt.eyeRate, F)) : (s = X);
@@ -29314,7 +29362,7 @@ void main() {
         !i.params || !i.params.fov)
       ) {
         let Z = bi(
-          C.baseFov + (C.sprinting ? Mt.fovSprint : 0),
+          C.baseFov + (C.sprinting ? Mt.fovSprint : C.sliding ? Mt.fovSlide : 0),
           Mt.fovAds,
           C.ads,
         );
@@ -35607,9 +35655,9 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
             : F < 12
               ? 1.8 - ((F - 5) / 7) * 0.8
               : Math.max(0.4, 1 - ((F - 12) / 20) * 0.6),
-        st = G.crouching ? 0.55 : 1,
+        st = G.crouching && !G.sliding ? 0.55 : 1,
         sp = G.speed || 0,
-        mv = sp < 0.4 ? 0.65 : G.sprinting ? 1.5 : 1;
+        mv = sp < 0.4 ? 0.65 : G.sprinting || G.sliding ? 1.5 : 1;
       return d * st * mv;
     },
     oM = new W(),
@@ -36732,7 +36780,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
     return (R(), I);
   }
   var fM = "saltline.settings.v1",
-    XC = { quality: "auto", sens: 1, invertY: !1, volume: 0.8, fov: Pi.fov, difficulty: "breacher", fps: "max", showFps: !1, sprintMode: "hold", crouchMode: "hold" },
+    XC = { quality: "auto", sens: 1, invertY: !1, volume: 0.8, fov: Pi.fov, difficulty: "breacher", fps: "max", showFps: !1, sprintMode: "hold", crouchMode: "hold", aimAssist: "on" },
     dM = ["lite", "low", "medium", "high", "ultra"];
   function YC() {
     let i = { ...XC };
@@ -36752,7 +36800,8 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
         SL_FPS_MODES[e.fps] && (i.fps = String(e.fps)),
         (i.showFps = !!e.showFps),
         ["hold", "toggle", "auto"].includes(e.sprintMode) && (i.sprintMode = e.sprintMode),
-        ["hold", "toggle"].includes(e.crouchMode) && (i.crouchMode = e.crouchMode));
+        ["hold", "toggle"].includes(e.crouchMode) && (i.crouchMode = e.crouchMode),
+        ["off", "on", "strong"].includes(e.aimAssist) && (i.aimAssist = e.aimAssist));
     } catch {}
     return i;
   }
@@ -36814,7 +36863,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
       </div>
       <aside class="m-legend" aria-label="Controls at a glance">
         <div><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Move</span><span><kbd>Mouse</kbd> Look</span><span><kbd>LMB</kbd> Fire</span><span><kbd>RMB</kbd> Aim</span><span><kbd>R</kbd> Reload</span></div>
-        <div><span><kbd>E</kbd> Cut relay</span><span><kbd>F</kbd> Melee</span><span><kbd>Shift</kbd> Sprint</span><span><kbd>C</kbd> Crouch</span><span><kbd>Esc</kbd> Pause</span></div>
+        <div><span><kbd>E</kbd> Cut relay</span><span><kbd>F</kbd> Melee</span><span><kbd>Shift</kbd> Sprint</span><span><kbd>C</kbd> Crouch \xB7 slide</span><span><kbd>Esc</kbd> Pause</span></div>
         <div class="lg-touch"><em>Touch</em><span>Left thumb moves</span><span>Right thumb looks</span><span>Fire \xB7 Aim \xB7 Crouch \xB7 Hit on screen</span></div>
       </aside>
     </section>
@@ -36870,6 +36919,8 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
           <div class="seg" role="group" aria-labelledby="l-spr">${["hold", "toggle", "auto"].map((U) => `<button data-mv="sprintMode:${U}" aria-pressed="false">${U}</button>`).join("")}</div></div>
         <div class="row"><label id="l-cro">Crouch</label>
           <div class="seg" role="group" aria-labelledby="l-cro">${["hold", "toggle"].map((U) => `<button data-mv="crouchMode:${U}" aria-pressed="false">${U}</button>`).join("")}</div></div>
+        <div class="row"><label id="l-aa">Aim assist <small>controller and touch</small></label>
+          <div class="seg" role="group" aria-labelledby="l-aa">${["off", "on", "strong"].map((U) => `<button data-mv="aimAssist:${U}" aria-pressed="false">${U}</button>`).join("")}</div></div>
         <div class="row"><label id="l-fps">Frame rate</label>
           <div class="seg" role="group" aria-labelledby="l-fps">${Object.keys(SL_FPS_MODES).map((U) => `<button data-fps="${U}" aria-pressed="false">${SL_FPS_MODES[U]}</button>`).join("")}</div></div>
         <div class="row"><label id="l-fpsc">FPS counter</label><button class="toggle" data-act="fpsshow" aria-labelledby="l-fpsc" aria-pressed="false"><i></i><span>Off</span></button></div>
@@ -36885,7 +36936,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
         <p class="panel-note">If the browser will not capture the mouse, hold a mouse button and drag to look (left also fires, right also aims). Arrow keys or <kbd>I</kbd><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd> turn, <kbd>Enter</kbd> fires.</p>
         <h3>Touch</h3>${ZC}
         <h3>Gamepad</h3>
-        <p class="panel-note">Sticks move and look \xB7 RT fire \xB7 LT aim \xB7 A jump \xB7 B crouch \xB7 X reload \xB7 Y cut relay \xB7 RB or R3 melee \xB7 L3 sprint \xB7 Start pause. Sprint and crouch can be hold, toggle or (sprint) automatic in Settings. In menus: D-pad or stick to move, A to select, B to go back. The sight slows slightly over a target on touch and pad.</p>
+        <p class="panel-note">Sticks move and look \xB7 RT fire \xB7 LT aim \xB7 A jump \xB7 B crouch \xB7 X reload \xB7 Y cut relay \xB7 RB or R3 melee \xB7 L3 sprint \xB7 Start pause. Crouch while sprinting to slide. Aim assist pulls the sight onto machines (Settings). Sprint and crouch can be hold, toggle or (sprint) automatic in Settings. In menus: D-pad or stick to move, A to select, B to go back. The sight slows slightly over a target on touch and pad.</p>
       </div>
     </div>
 
@@ -36950,7 +37001,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
         let [K, V] = D.dataset.mv.split(":");
         D.setAttribute("aria-pressed", String(n[K] === V));
       }
-      i.input && ((i.input.sprintMode = n.sprintMode), (i.input.crouchMode = n.crouchMode));
+      i.input && ((i.input.sprintMode = n.sprintMode), (i.input.crouchMode = n.crouchMode), (i.input.aimAssist = n.aimAssist));
       for (let D of r("[data-fps]"))
         D.setAttribute("aria-pressed", String(D.dataset.fps === n.fps));
       {
@@ -37467,23 +37518,75 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
       !eng && mx > 0.55 && st.suspCueT <= 0 &&
         ((st.suspCueT = 1.6), i.audio && i.audio.play && i.audio.play("telegraph", { gain: 0.35, pitch: 1.6, jitter: 0 }));
     }
-    // ---- touch and pad aim slowdown: look slows while the sight crosses a machine ----
+    // ---- aim assist (controller and touch): slowdown over a target, a pull that tracks it, and a snap when you raise the sight ----
+    let aaLos = new Map(),
+      aaPrevAds = !1,
+      aaSnap = 0;
+    function aaVisible(e, now) {
+      let c = aaLos.get(e);
+      if (!c || now - c.t > 140) {
+        tmpB.set(e.pos.x, e.pos.y + (e.type === "hound" ? 0.6 : 0), e.pos.z);
+        let v = !0;
+        try {
+          v = i.physics.lineOfSight(player.eye, tmpB);
+        } catch {}
+        ((c = { t: now, v }), aaLos.set(e, c));
+      }
+      return c.v;
+    }
     function updateAim(dt) {
-      if (!(input.touch || input.gamepad)) return void (input.aimSlow = 1);
-      st.aimT -= dt;
-      if (st.aimT > 0) return;
-      st.aimT = 0.06;
-      let slow = 1;
+      let mode = input.aimAssist || "on",
+        now = performance.now(),
+        pad = input.gamepad && (input.padT || 0) > (input.mouseT || 0) && now - (input.padT || 0) < 6e3,
+        ads = !!input.ads,
+        adsEdge = ads && !aaPrevAds;
+      aaPrevAds = ads;
+      if (mode === "off" || !(input.touch || pad)) return void ((input.aimSlow = 1), (aaSnap = 0));
+      let k = mode === "strong" ? 1.6 : 1,
+        best = null,
+        bAng = 1e9,
+        bYaw = 0,
+        bPitch = 0,
+        bD = 0;
       for (let e of i.enemies.list || []) {
         if (!e.alive || e.passive) continue;
-        tmpA.set(e.pos.x, e.pos.y + (e.type === "hound" ? 0.6 : 0), e.pos.z).sub(player.eye);
-        let d = tmpA.length();
-        if (d > 45 || d < 0.5) continue;
-        let ang = Math.acos(Math.min(1, tmpA.dot(player.forward) / d)),
-          lim = Math.max(0.035, 0.9 / d);
-        ang < lim && (slow = Math.min(slow, 0.5 + 0.5 * (ang / lim)));
+        let dx = e.pos.x - player.eye.x,
+          dy = e.pos.y + (e.type === "hound" ? 0.6 : 0) - player.eye.y,
+          dz = e.pos.z - player.eye.z,
+          hd = Math.hypot(dx, dz),
+          d = Math.hypot(hd, dy);
+        if (d > 55 || d < 0.6) continue;
+        let yawErr = Math.atan2(-dx, -dz) - player.yaw;
+        yawErr = Math.atan2(Math.sin(yawErr), Math.cos(yawErr));
+        let pitchErr = Math.atan2(dy, hd) - player.pitch,
+          ang = Math.hypot(yawErr * Math.cos(player.pitch), pitchErr);
+        ang < bAng && ang < 0.3 && aaVisible(e, now) && ((bAng = ang), (best = e), (bYaw = yawErr), (bPitch = pitchErr), (bD = d));
       }
-      input.aimSlow = slow;
+      if (aaLos.size > 64) aaLos.clear();
+      if (!best) return void ((input.aimSlow = 1), (aaSnap = 0));
+      // the target's apparent size sets the cones: bigger up close, never smaller than a few degrees
+      let size = Math.atan(0.9 / bD),
+        slowCone = Math.max(0.035, size) * (mode === "strong" ? 1.3 : 1),
+        pullCone = Math.max(0.07, size * 2.2) * k,
+        snapCone = 0.17 * k;
+      input.aimSlow = bAng < slowCone ? 0.45 + 0.55 * (bAng / slowCone) : 1;
+      adsEdge && bAng < snapCone && (aaSnap = 0.16);
+      let rate = 0;
+      if (aaSnap > 0) ((aaSnap -= dt), (rate = 7 * k));
+      else if (bAng < pullCone) {
+        // only while the player is doing something, so it tracks with you rather than aiming for you
+        let active =
+          Math.abs(input.move.x) + Math.abs(input.move.y) > 0.15 ||
+          Math.abs(input.look.dx) + Math.abs(input.look.dy) > 1e-4 ||
+          input.fire;
+        active && (rate = (ads ? 0.6 : 0.32) * k * (1 - 0.6 * (bAng / pullCone)));
+      }
+      if (rate > 0 && player.alive) {
+        let stepMax = rate * dt,
+          sc = bAng > 1e-5 ? Math.min(1, stepMax / bAng) : 0;
+        ((player.yaw += bYaw * sc),
+          (player.pitch = Math.max(-1.5, Math.min(1.5, player.pitch + bPitch * sc))));
+      }
     }
     function updatePickups(dt) {
       let px = player.pos.x,
