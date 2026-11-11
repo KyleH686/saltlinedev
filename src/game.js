@@ -202,6 +202,16 @@
         exit: "truck",
         exitLabel: "Truck",
         dry: !0,
+        modes: { uplinks: "Uplinks", demolition: "Demolition" },
+        premiseDemo: "A dead oil lease, and its guard machines never got the stand-down. Plant four charges on the derrick, reach the truck, and bring it down.",
+        radioDemo: {
+          intro: "Breacher, this is Control. Station 9 will not stand down, so the derrick comes down. One charge on each leg.",
+          contact: "It has seen you. Gulls fly, Hounds walk. Put them down.",
+          cut: ["One charge set. It felt that \u2014 machines inbound.", "Two set. Keep moving round the legs.", "Three. One leg left \u2014 it is throwing everything at you."],
+          all: "All four set. Get to the truck at the west gate and we fire them.",
+          low: "You are hit hard. Get behind steel and breathe.",
+          done: "Derrick is down. Station 9 is finished. Good work, Breacher.",
+        },
         radio: {
           intro: "Breacher, this is Control. Station 9 still thinks it is at war. Cut its three uplinks \u2014 derrick, pump house, stacks.",
           contact: "It has seen you. Gulls fly, Hounds walk. Put them down.",
@@ -219,7 +229,35 @@
       } catch {}
       return SL_MAPS[k] ? k : "saltline";
     })(),
-    SL_M = SL_MAPS[SL_MAP];
+    SL_M = SL_MAPS[SL_MAP],
+    SL_MODE = (() => {
+      let k = "";
+      try {
+        k = new URLSearchParams(location.search).get("mode") || JSON.parse(localStorage.getItem("saltline.settings.v1") || "{}").mode || "";
+      } catch {}
+      return SL_M.modes && SL_M.modes[k] ? k : "uplinks";
+    })(),
+    SL_DEMO = SL_MODE === "demolition",
+    SL_TXT = SL_DEMO
+      ? {
+          obj: (left, total) => (left === total ? "Plant charges on the four derrick legs" : left === 1 ? "Plant the last charge" : `Plant the remaining ${left} charges`),
+          prompt: "Plant charge ",
+          hud: "Charges",
+          quiet: "Quiet plants",
+          quietMsg: "Quiet plant \u2014 nothing saw you",
+          dead: "Charges set",
+          hint: "Charges not all set \u2014 the truck will not wait under fire",
+        }
+      : {
+          obj: (left, total) => (left === total ? "Cut the three uplink relays" : left === 1 ? "Cut the last relay" : `Cut the remaining ${left} relays`),
+          prompt: "Cut relay ",
+          hud: "Relays",
+          quiet: "Quiet relay cuts",
+          quietMsg: "Quiet cut \u2014 nothing saw you",
+          dead: "Relays cut",
+          hint: "Relays still live \u2014 the " + SL_M.exit + " will not wait under fire",
+        };
+  SL_DEMO && ((SL_M.premise = SL_M.premiseDemo), (SL_M.radio = SL_M.radioDemo), (SL_M.debrief = SL_M.debrief + " \xB7 Demolition"));
   if (SL_M.dry) {
     // late-afternoon desert: high warm sun, blue zenith, dust-coloured horizon, no sea, no rain
     (Mn.dir.set(0.52, 0.62, 0.42).normalize(), Mn.color.setRGB(1, 0.86, 0.66), (Mn.intensity = 11));
@@ -16163,49 +16201,41 @@ float metalnessFactor = metalness * slORM.b;
       t.slab("concrete_dirty", 6, 0, 8, 19.5, 0.04, 19.5, { cast: !1 }),
       t.slab("asphalt", -22, 0, 3, -12, 0.035, 9.4, { cast: !1 }));
     // ---------- the derrick ----------
-    {
-      let L = [2.6, 5.2, 7.8];
-      // legs to the top deck, then the tapering mast to the crown
-      for (let sx of [-3, 3])
-        for (let sz of [-3, 3]) {
-          (t.box("steel_worn", 0.28, 7.8, 0.28, sx, 3.9, sz, { bevel: 0.02 }),
-            t.col(sx - 0.16, 0, sz - 0.16, sx + 0.16, 7.8, sz + 0.16, "metal"),
-            t.box("concrete", 0.9, 0.3, 0.9, sx, 0.15, sz, { bevel: 0.03 }),
-            t.rod("steel_worn", [sx, 7.8, sz], [sx * 0.2, 15.2, sz * 0.2], 0.09));
-        }
-      for (let y of [10.2, 12.7, 15.2]) {
-        let k = 1 - ((y - 7.8) / 7.4) * 0.8,
-          a = 3 * k;
-        for (let [x0, z0, x1, z1] of [
-          [-a, -a, a, -a],
-          [a, -a, a, a],
-          [a, a, -a, a],
-          [-a, a, -a, -a],
-        ])
-          t.rod("steel_worn", [x0, y, z0], [x1, y, z1], 0.05);
-      }
-      // mast bracing (no walkways up here, so every face is crossed)
-      for (let [ya, yb] of [
-        [10.2, 12.7],
-        [12.7, 15.2],
-      ]) {
-        let ka = 3 * (1 - ((ya - 7.8) / 7.4) * 0.8),
-          kb = 3 * (1 - ((yb - 7.8) / 7.4) * 0.8);
-        for (let s of [-1, 1]) {
-          (t.rod("steel_worn", [-ka, ya, s * ka], [kb, yb, s * kb], 0.03),
-            t.rod("steel_worn", [ka, ya, s * ka], [-kb, yb, s * kb], 0.03),
-            t.rod("steel_worn", [s * ka, ya, -ka], [s * kb, yb, kb], 0.03),
-            t.rod("steel_worn", [s * ka, ya, ka], [s * kb, yb, -kb], 0.03));
-        }
-      }
-      // crown block, beacon, drill string
-      (t.box("steel_dark", 1.5, 0.5, 1.5, 0, 15.45, 0, { bevel: 0.04 }),
-        t.box("paint_yellow", 0.9, 0.7, 0.5, 0, 14.6, 0, { bevel: 0.03 }),
-        t.cyl("steel_galv", 0.03, 1.6, 0, 16.5, 0, { seg: 6 }),
-        t.add(new lt.SphereGeometry(0.12, 10, 8), i.mats.emissive(16724787, 6), { p: [0, 17.35, 0], cast: !1 }),
-        t.cyl("steel_bare", 0.075, 11.9, 0, 8.55, 0, { seg: 10 }),
-        t.col(-0.1, 2.6, -0.1, 0.1, 9.2, 0.1, "metal"));
-      // lower bracing: west face all the way up, north face to the first two decks, east at ground level
+    // In Demolition the tower has to come down, so its steel is built into two movable sections (the three-deck
+    // frame and the mast above it) instead of being merged into the level. Footings and the wellhead stay put.
+    let L = [2.6, 5.2, 7.8],
+      LEGS = [
+        [-3, -3],
+        [3, -3],
+        [3, 3],
+        [-3, 3],
+      ],
+      section = (fn) => {
+        let n0 = t.staticRoot.children.length;
+        fn();
+        if (!SL_DEMO) return null;
+        let g = new lt.Group();
+        for (let c of t.staticRoot.children.slice(n0)) g.add(c);
+        return g;
+      };
+    // fixed to the ground
+    for (let [sx, sz] of LEGS) (t.box("concrete", 0.9, 0.3, 0.9, sx, 0.15, sz, { bevel: 0.03 }), t.col(sx - 0.16, 0, sz - 0.16, sx + 0.16, 7.8, sz + 0.16, "metal"));
+    (t.cyl("steel_dark", 0.55, 0.3, 0, 0.2, 0, { seg: 18 }),
+      t.cyl("paint_red", 0.24, 2.2, 0, 1.4, 0, { seg: 14 }),
+      t.cyl("paint_red", 0.16, 1.5, 0, 1.25, 0, { axis: "x", seg: 12 }),
+      t.cyl("paint_red", 0.16, 1.5, 0, 1.85, 0, { axis: "z", seg: 12 }),
+      t.cyl("steel_dark", 0.3, 0.07, 0.8, 1.25, 0, { axis: "x", seg: 14 }),
+      t.cyl("steel_dark", 0.3, 0.07, -0.8, 1.25, 0, { axis: "x", seg: 14 }),
+      t.cyl("steel_dark", 0.3, 0.07, 0, 1.85, 0.8, { axis: "z", seg: 14 }),
+      t.col(-0.6, 0, -0.6, 0.6, 2.5, 0.6, "metal"),
+      t.col(-0.1, 2.6, -0.1, 0.1, 9.2, 0.1, "metal"),
+      P("barrel", -2.1, -2, 0, { seed: 5, color: "red" }),
+      P("barrel", -2.1, -1.3, 0.4, { seed: 6, color: "red" }),
+      P("toolbox_cart", 2, -2.1, 0.2, { seed: 7 }));
+    // the frame: legs, bracing, three decks, three flights of stairs, and what sits on the decks
+    let twLower = section(() => {
+      for (let [sx, sz] of LEGS) t.box("steel_worn", 0.28, 7.5, 0.28, sx, 4.05, sz, { bevel: 0.02 });
+      // bracing: west face all the way up, north face to the first two decks, east at ground level
       for (let [ya, yb] of [
         [0.3, 2.5],
         [2.6, 5.1],
@@ -16255,25 +16285,95 @@ float metalnessFactor = metalness * slORM.b;
         rail(3, -3.1, 3, 3, L[2]),
         rail(-0.9, -3.1, 3, -3.1, L[2]),
         rail(-3, -4.2, -0.9, -4.2, L[2]));
-      // wellhead under the floor
-      (t.cyl("steel_dark", 0.55, 0.3, 0, 0.2, 0, { seg: 18 }),
-        t.cyl("paint_red", 0.24, 2.2, 0, 1.4, 0, { seg: 14 }),
-        t.cyl("paint_red", 0.16, 1.5, 0, 1.25, 0, { axis: "x", seg: 12 }),
-        t.cyl("paint_red", 0.16, 1.5, 0, 1.85, 0, { axis: "z", seg: 12 }),
-        t.cyl("steel_dark", 0.3, 0.07, 0.8, 1.25, 0, { axis: "x", seg: 14 }),
-        t.cyl("steel_dark", 0.3, 0.07, -0.8, 1.25, 0, { axis: "x", seg: 14 }),
-        t.cyl("steel_dark", 0.3, 0.07, 0, 1.85, 0.8, { axis: "z", seg: 14 }),
-        t.col(-0.6, 0, -0.6, 0.6, 2.5, 0.6, "metal"),
-        P("barrel", -2.1, -2, 0, { seed: 5, color: "red" }),
-        P("barrel", -2.1, -1.3, 0.4, { seed: 6, color: "red" }),
-        P("toolbox_cart", 2, -2.1, 0.2, { seed: 7 }),
-        P("crate_wood", 1.9, 1.9, 0.1, { seed: 8 }, L[0]),
+      (P("crate_wood", 1.9, 1.9, 0.1, { seed: 8 }, L[0]),
         P("sandbags", 0, 2.3, 0, { seed: 9 }, L[2]),
         P("sandbags", -2.3, 0, HP, { seed: 10 }, L[2]),
         P("crate_wood", 2.1, -2.1, 0.3, { seed: 11 }, L[1]),
+        t.cyl("steel_bare", 0.075, 5.2, 0, 5.2, 0, { seg: 10 }),
         t.label("STATION 9", 0.5, -2.4, 6.4, 3.07, "z+", { color: "white", font: "stencil", distress: 0.4 }));
+    });
+    // the mast: four legs tapering to the crown block, braced on every face above head height
+    let twMast = section(() => {
+      for (let [sx, sz] of LEGS) t.rod("steel_worn", [sx, 7.8, sz], [sx * 0.2, 15.2, sz * 0.2], 0.09);
+      for (let y of [10.2, 12.7, 15.2]) {
+        let a = 3 * (1 - ((y - 7.8) / 7.4) * 0.8);
+        for (let [x0, z0, x1, z1] of [
+          [-a, -a, a, -a],
+          [a, -a, a, a],
+          [a, a, -a, a],
+          [-a, a, -a, -a],
+        ])
+          t.rod("steel_worn", [x0, y, z0], [x1, y, z1], 0.05);
+      }
+      for (let [ya, yb] of [
+        [10.2, 12.7],
+        [12.7, 15.2],
+      ]) {
+        let ka = 3 * (1 - ((ya - 7.8) / 7.4) * 0.8),
+          kb = 3 * (1 - ((yb - 7.8) / 7.4) * 0.8);
+        for (let s of [-1, 1])
+          (t.rod("steel_worn", [-ka, ya, s * ka], [kb, yb, s * kb], 0.03),
+            t.rod("steel_worn", [ka, ya, s * ka], [-kb, yb, s * kb], 0.03),
+            t.rod("steel_worn", [s * ka, ya, -ka], [s * kb, yb, kb], 0.03),
+            t.rod("steel_worn", [s * ka, ya, ka], [s * kb, yb, -kb], 0.03));
+      }
+      (t.box("steel_dark", 1.5, 0.5, 1.5, 0, 15.45, 0, { bevel: 0.04 }),
+        t.box("paint_yellow", 0.9, 0.7, 0.5, 0, 14.6, 0, { bevel: 0.03 }),
+        t.cyl("steel_galv", 0.03, 1.6, 0, 16.5, 0, { seg: 6 }),
+        t.add(new lt.SphereGeometry(0.12, 10, 8), i.mats.emissive(16724787, 6), { p: [0, 17.35, 0], cast: !1 }),
+        t.cyl("steel_bare", 0.075, 6.7, 0, 11.15, 0, { seg: 10 }));
+    });
+    let tower = null,
+      charges = [];
+    if (SL_DEMO) {
+      // collapse rig: the frame turns about its east foot line, the mast about the frame's east top edge
+      let pack = (g, name) => {
+          g.traverse((m) => {
+            if (m.isMesh && !Array.isArray(m.material)) {
+              let solid = !m.material.transparent && !m.material.isMeshBasicMaterial;
+              ((m.castShadow = solid), (m.receiveShadow = !m.material.isMeshBasicMaterial));
+            }
+          });
+          let out = By(g);
+          return ((out.name = name), out);
+        },
+        lower = pack(twLower, "tower-lower"),
+        mast = pack(twMast, "tower-mast"),
+        hLower = new lt.Group(),
+        hMast = new lt.Group();
+      ((hLower.name = "tower"), hLower.position.set(3, 0, 0), lower.position.set(-3, 0, 0), hLower.add(lower));
+      (hMast.position.set(0, 7.8, 0), mast.position.set(-3, -7.8, 0), hMast.add(mast), hLower.add(hMast), t.dynRoot.add(hLower));
+      tower = {
+        lower: hLower,
+        mast: hMast,
+        legs: LEGS.map(([x, z]) => mt(x, 0.5, z)),
+        reset() {
+          (hLower.position.set(3, 0, 0), hLower.rotation.set(0, 0, 0), hMast.rotation.set(0, 0, 0), (hLower.visible = !0));
+        },
+      };
+      // one charge per leg: a tan satchel strapped to the steel with a lamp that wakes when it is armed
+      LEGS.forEach(([sx, sz], k) => {
+        t.box("hazard_stripes", 0.34, 0.42, 0.34, sx, 0.62, sz);
+        let g = new lt.Group(),
+          state = "live",
+          tt = k * 0.37;
+        g.position.set(sx * 1.075, 0.62, sz * 1.075);
+        g.rotation.y = Math.atan2(sx, sz);
+        let body = t.add($e(0.36, 0.26, 0.14), "polymer_tan", { parent: g, p: [0, 0, 0] });
+        (t.add($e(0.38, 0.05, 0.16), "polymer_black", { parent: g, p: [0, 0.06, 0] }), t.add($e(0.38, 0.05, 0.16), "polymer_black", { parent: g, p: [0, -0.06, 0] }));
+        let lamp = t.add(new lt.SphereGeometry(0.03, 8, 6), i.mats.emissive(16720418, 7), { parent: g, p: [0.1, 0.15, 0.05], cast: !1 });
+        ((body.castShadow = !0), (g.visible = !1), (g.userData.noMerge = !0));
+        g.userData.setState = (v) => {
+          ((state = v), (g.visible = v !== "live"));
+        };
+        (t.dynRoot.add(g),
+          t.updaters.push((dt) => {
+            ((tt += dt), (lamp.visible = state === "cut" ? Math.sin(tt * 5) > 0.2 : Math.sin(tt * 26) > 0));
+          }));
+        charges.push({ id: "charge_" + "abcd"[k], label: "Charge " + "ABCD"[k] + " — " + ["North-west", "North-east", "South-east", "South-west"][k] + " leg", zone: "mid", pos: mt(sx * 1.18, 0, sz * 1.18), object: g });
+      });
     }
-    let relayA = P("relay_node", -1.5, -1.6, 0, { seed: 1 }, 2.6);
+    let relayA = SL_DEMO ? null : P("relay_node", -1.5, -1.6, 0, { seed: 1 }, 2.6);
     // ---------- pump house (north-east) ----------
     {
       let x0 = 8,
@@ -16316,7 +16416,7 @@ float metalnessFactor = metalness * slORM.b;
         P("sandbags", 11, -8.6, 0.05, { seed: 21 }),
         P("jersey_barrier", 14.6, -7.9, -0.08, { seed: 22 }));
     }
-    let relayB = P("relay_node", 14.4, -14.6, -HP, { seed: 2 }, 0.07);
+    let relayB = SL_DEMO ? null : P("relay_node", 14.4, -14.6, -HP, { seed: 2 }, 0.07);
     // ---------- tank farm (north-west) ----------
     {
       (tank(-14, -14.4, 2.7, 5.6, 1), tank(-7.6, -15.2, 2.2, 4.4, 2));
@@ -16367,7 +16467,7 @@ float metalnessFactor = metalness * slORM.b;
       P("cable_reel", 18.2, 19, 0.6, { seed: 42 }),
       P("sandbags", 16.6, 16.6, 0.02, { seed: 43 }, 2.59));
     for (let x of [8.9, 11.7, 14.6]) for (let z of [11.86, 12.94]) t.rod("steel_galv", [x, 0, z], [x, 2.56, z], 0.035);
-    let relayC = P("relay_node", 12.9, 14.7, Math.PI, { seed: 3 }, 0);
+    let relayC = SL_DEMO ? null : P("relay_node", 12.9, 14.7, Math.PI, { seed: 3 }, 0);
     // ---------- yard (south-west): pumpjack, pipe racks, plant ----------
     let jack = slPumpjack(i, t, -13, 14.2);
     (P("pipe_stack", -16.6, 18.4, 0.02, { seed: 44 }),
@@ -16465,7 +16565,7 @@ float metalnessFactor = metalness * slORM.b;
       P("light_mast", 20.4, 20.4, 0, { seed: 79 }),
       P("light_mast", -20.4, -20.6, 0, { seed: 80 }));
     // ---------- finish: merge, collect, describe ----------
-    let fin = slFinishLevel(i, e, t, [relayA, relayB, relayC]);
+    let fin = slFinishLevel(i, e, t, SL_DEMO ? [] : [relayA, relayB, relayC]);
     try {
       i.fx && i.fx.addEmitter && i.fx.addEmitter(mt(19.4, 12.5, -19.4), "fire");
     } catch {}
@@ -16542,11 +16642,14 @@ float metalnessFactor = metalness * slORM.b;
       root: e,
       map: "drywell",
       playerStart: { pos: mt(0, 0, 19.6), yaw: 0 },
-      objectives: [
-        { id: "relay_a", label: "Relay A — Derrick", zone: "mid", pos: mt(-1.5, 2.6, -1.6), object: relayA },
-        { id: "relay_b", label: "Relay B — Pump house", zone: "north", pos: mt(14.4, 0.07, -14.6), object: relayB },
-        { id: "relay_c", label: "Relay C — Stacks", zone: "south", pos: mt(12.9, 0, 14.7), object: relayC },
-      ],
+      tower,
+      objectives: SL_DEMO
+        ? charges
+        : [
+            { id: "relay_a", label: "Relay A — Derrick", zone: "mid", pos: mt(-1.5, 2.6, -1.6), object: relayA },
+            { id: "relay_b", label: "Relay B — Pump house", zone: "north", pos: mt(14.4, 0.07, -14.6), object: relayB },
+            { id: "relay_c", label: "Relay C — Stacks", zone: "south", pos: mt(12.9, 0, 14.7), object: relayC },
+          ],
       extraction: { pos: mt(truck.door.x, 0, truck.door.z), radius: 2.5 },
       enemySpawns: spawns,
       zones: [
@@ -37459,7 +37562,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
     let c = li(
         "div",
         "h-obj",
-        '<div class="h-k">Objective</div><div class="h-obj-t"></div><div class="h-relays"><span>Relays</span><i></i><i></i><i></i><b>0/3</b></div>',
+        '<div class="h-k">Objective</div><div class="h-obj-t"></div><div class="h-relays"><span>' + SL_TXT.hud + '</span><i></i><i></i><i></i><b>0/3</b></div>',
       ),
       u = c.querySelector(".h-obj-t"),
       h = c.querySelector(".h-relays"),
@@ -37964,7 +38067,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
     return (R(), I);
   }
   var fM = "saltline.settings.v1",
-    XC = { quality: "auto", sens: 1, invertY: !1, volume: 0.8, fov: Pi.fov, difficulty: "breacher", fps: "max", showFps: !1, sprintMode: "hold", crouchMode: "hold", aimAssist: "on", diag: !1, map: "saltline" },
+    XC = { quality: "auto", sens: 1, invertY: !1, volume: 0.8, fov: Pi.fov, difficulty: "breacher", fps: "max", showFps: !1, sprintMode: "hold", crouchMode: "hold", aimAssist: "on", diag: !1, map: "saltline", mode: "uplinks" },
     dM = ["lite", "low", "medium", "high", "ultra"];
   function YC() {
     let i = { ...XC };
@@ -37987,7 +38090,8 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
         ["hold", "toggle"].includes(e.crouchMode) && (i.crouchMode = e.crouchMode),
         ["off", "on", "strong"].includes(e.aimAssist) && (i.aimAssist = e.aimAssist),
         (i.diag = !!e.diag),
-        SL_MAPS[e.map] && (i.map = e.map));
+        SL_MAPS[e.map] && (i.map = e.map),
+        typeof e.mode == "string" && e.mode.length < 24 && (i.mode = e.mode));
     } catch {}
     return i;
   }
@@ -38041,6 +38145,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
         <h1 class="m-word">SALTLINE</h1>
         <p class="m-premise">${SL_M.premise}</p>
         <div class="m-diff m-map" role="group" aria-label="Map">${Object.keys(SL_MAPS).map((U) => `<button data-map="${U}" aria-pressed="${U === SL_MAP}">${SL_MAPS[U].name}</button>`).join("")}</div>
+        ${SL_M.modes ? `<div class="m-diff m-mode" role="group" aria-label="Mode">${Object.keys(SL_M.modes).map((U) => `<button data-mode="${U}" aria-pressed="${U === SL_MODE}">${SL_M.modes[U]}</button>`).join("")}</div>` : ""}
         <div class="m-diff" role="group" aria-label="Difficulty">${Object.keys(SL_DIFF).map((U) => `<button data-diff="${U}" aria-pressed="false">${SL_DIFF[U].name}</button>`).join("")}</div>
         <p class="m-best" data-f="best"></p>
         <p class="m-build">Build ${SL_BUILD}</p>
@@ -38073,20 +38178,20 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
     <section class="m-screen m-card m-dead" data-s="dead" aria-label="Signal lost">
       <div class="m-k">Breacher down</div>
       <h2 class="m-h">Signal lost</h2>
-      <dl class="m-stats"><div><dt>Time survived</dt><dd data-f="dead-time">00:00</dd></div><div><dt>Relays cut</dt><dd data-f="dead-relays">0/3</dd></div></dl>
+      <dl class="m-stats"><div><dt>Time survived</dt><dd data-f="dead-time">00:00</dd></div><div><dt>${SL_TXT.dead}</dt><dd data-f="dead-relays">0/3</dd></div></dl>
       <div class="m-actions col"><button class="btn primary" data-act="retry">Retry</button></div>
     </section>
 
     <section class="m-screen m-card m-debrief" data-s="complete" aria-label="Debrief">
       <div class="m-k">${SL_M.debrief} \xB7 Debrief \xB7 <span data-f="dname">Breacher</span></div>
-      <h2 class="m-h">Saltline is dark</h2>
+      <h2 class="m-h">${SL_DEMO ? "The derrick is down" : SL_M.dry ? "Station 9 is dark" : "Saltline is dark"}</h2>
       <div class="m-rating"><span>Rating</span><b data-f="rating">Clean</b></div>
       <dl class="m-stats">
         <div><dt>Time</dt><dd data-f="time">00:00</dd></div>
         <div><dt>Accuracy</dt><dd data-f="acc">0%</dd></div>
         <div><dt>Machines destroyed</dt><dd data-f="kills">0</dd></div>
         <div><dt>Silent takedowns</dt><dd data-f="tds">0</dd></div>
-        <div><dt>Quiet relay cuts</dt><dd data-f="quiet">0/3</dd></div>
+        <div><dt>${SL_TXT.quiet}</dt><dd data-f="quiet">0/3</dd></div>
         <div><dt>Intel recovered</dt><dd data-f="intel">0/3</dd></div>
         <div><dt>Retries</dt><dd data-f="retries">0</dd></div>
       </dl>
@@ -38311,15 +38416,16 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
         (i.events.emit("ui:click", {}), (n.showFps = !n.showFps), slSetFps(n.fps, n.showFps), g(), Wf(n));
         return;
       }
-      if (T.dataset.map) {
-        if (T.dataset.map === SL_MAP) return;
-        (i.events.emit("ui:click", {}), (n.map = T.dataset.map), Wf(n));
-        for (let D of r("[data-map]")) D.setAttribute("aria-pressed", String(D.dataset.map === n.map));
-        c("best").textContent = "Loading " + SL_MAPS[n.map].name + "\u2026";
+      if (T.dataset.map || T.dataset.mode) {
+        if (T.dataset.map ? T.dataset.map === SL_MAP : T.dataset.mode === SL_MODE) return;
+        (i.events.emit("ui:click", {}), T.dataset.map ? (n.map = T.dataset.map) : (n.mode = T.dataset.mode), Wf(n));
+        for (let D of r("[data-map]")) D.setAttribute("aria-pressed", String(D.dataset.map === (n.map || SL_MAP)));
+        for (let D of r("[data-mode]")) D.setAttribute("aria-pressed", String(D.dataset.mode === (n.mode || SL_MODE)));
+        c("best").textContent = "Loading " + (T.dataset.map ? SL_MAPS[n.map].name : SL_M.modes[n.mode]) + "\u2026";
         setTimeout(() => {
           try {
             let u = new URL(location.href);
-            (u.searchParams.delete("map"), location.replace(u.href));
+            (u.searchParams.delete("map"), u.searchParams.delete("mode"), location.replace(u.href));
           } catch {
             location.reload();
           }
@@ -38484,6 +38590,13 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
   //  personal bests, touch aim slowdown.
   // ======================================================================
   var SL_BUILD = "__SL_BUILD__";
+  SL_DEMO &&
+    (Yi.waves = [
+      { gull: 2, hound: 1 },
+      { gull: 3, hound: 1 },
+      { gull: 3, hound: 2 },
+      { gull: 4, hound: 2 },
+    ]);
   var SL_DIFF = {
       recruit: { name: "Recruit", dmg: 0.6, regen: 3, see: 1.35, wave: -1, maxAlive: 7, ammo: 1.3 },
       breacher: { name: "Breacher", dmg: 1, regen: 4, see: 1, wave: 0, maxAlive: 9, ammo: 1 },
@@ -38492,7 +38605,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
     SL_BEST = "saltline.best.v1",
     SL_RATINGS = ["Messy", "Loud", "Steady", "Clean", "Sharp", "Surgical", "Ghost"];
   function slBestKey(d) {
-    return SL_MAP === "saltline" ? d : SL_MAP + ":" + d;
+    return SL_MAP === "saltline" ? d : SL_MAP + (SL_DEMO ? "-demo" : "") + ":" + d;
   }
   function slLoadBest() {
     try {
@@ -38959,7 +39072,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
       },
       onCut() {
         run.time - st.lastEng > 5 &&
-          (st.quiet++, hud.message("Quiet cut \u2014 nothing saw you", 2.2));
+          (st.quiet++, hud.message(SL_TXT.quietMsg, 2.2));
       },
       update(dt) {
         ((st.meleeCd -= dt),
@@ -39057,6 +39170,10 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
           j(!1);
         },
         update: B,
+        debugCine(to) {
+          for (cz.hold = !1; cz.t < to; ) cine(1 / 60);
+          cz.hold = !0;
+        },
         debugCut() {
           let P = c.relays.find((V) => !V.cut);
           P && me(P);
@@ -39154,7 +39271,8 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
         (e.fade = Math.max(1 - sl(0, 1.8, E.t), sl(V - 1.6, V, E.t))));
     }
     function H() {
-      (SX.setDifficulty(l.settings.difficulty),
+      (s.tower && s.tower.reset(),
+        SX.setDifficulty(l.settings.difficulty),
         SX.reset(),
         a(i.enemies, "clear"),
         a(i.fx, "clear"),
@@ -39261,12 +39379,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
     }
     function D() {
       if (c.allCut) return "Get to the " + SL_M.exit;
-      let P = c.relays.length - c.cut;
-      return c.cut === 0
-        ? "Cut the three uplink relays"
-        : P === 1
-          ? "Cut the last relay"
-          : `Cut the remaining ${P} relays`;
+      return SL_TXT.obj(c.relays.length - c.cut, c.relays.length);
     }
     function C(P) {
       let V = r.describeMode ? r.describeMode() : "";
@@ -39527,7 +39640,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
                 O(L.o, "live"),
                 i.events.emit("objective:progress", { id: L.id, t: 0 }))));
       V && !V.cut
-        ? o.setPrompt && o.setPrompt("Cut relay " + V.short, Fo(V.t))
+        ? o.setPrompt && o.setPrompt(SL_TXT.prompt + V.short, Fo(V.t))
         : o.setPrompt && o.setPrompt(null);
       let Y = s.extraction;
       if (Y && Y.pos) {
@@ -39540,7 +39653,7 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
             c.extractHint <= 0 &&
             ((c.extractHint = 8),
             o.message(
-              "Relays still live \u2014 the " + SL_M.exit + " will not wait under fire",
+              SL_TXT.hint,
               3.5,
             )),
           (c.extractHint = Math.max(0, c.extractHint - P)));
@@ -39582,9 +39695,9 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
         r.exitLock(),
         o.setPrompt && o.setPrompt(null),
         o.show(!1),
-        i.events.emit("extraction:reached", {}),
+        SL_DEMO && s.tower ? 0 : i.events.emit("extraction:reached", {}),
         o.clearRadio && o.clearRadio(),
-        o.radio && o.radio(_l.done, 2.2));
+        SL_DEMO && s.tower ? 0 : o.radio && o.radio(_l.done, 2.2));
       let P = (i.combat && i.combat.stats) || { shots: 0, hits: 0, kills: 0 },
         V = P.shots > 0 ? Zn(P.hits / P.shots, 0, 1) : null,
         Y =
@@ -39618,7 +39731,109 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
             newbest: nb,
           },
         }),
-        M("complete"));
+        SL_DEMO && s.tower ? (cineStart(), M("demo")) : M("complete"));
+    }
+    // ---- Demolition outro: from the truck, the charges go and the derrick comes down ----
+    let cz = null,
+      czA = new W(),
+      czB = new W(),
+      SAND = [0.74, 0.62, 0.46];
+    function cineStart() {
+      (a(i.enemies, "clear"), a(i.weapon, "setVisible", !1), a(i.audio, "setIntensity", 0.6));
+      cz = { t: 0, beep: 0, blast: 0, said: !1, hit: !1, shown: !1, shake: 0, spark: 0, groan: 0, fov: 0, puff: 0 };
+      e.fade = 1;
+    }
+    function cinePlay(name, opt) {
+      try {
+        i.audio && i.audio.play && i.audio.play(name, opt);
+      } catch {}
+    }
+    function cine(P) {
+      let k = cz,
+        T = s.tower,
+        cam = i.camera,
+        T0 = 2.3,
+        TF = 3.3,
+        FULL = Math.PI / 2 - 0.03;
+      k.t += P;
+      let tt = k.t,
+        tc = tt - (T0 + 0.3),
+        u = Math.min(1, Math.max(0, tc / TF));
+      e.fade = k.shown ? kn(e.fade || 0, 0.62, 0.9, P) : Math.max(0, 1 - tt / 0.45);
+      e.flash = kn(e.flash || 0, 0, 5, P);
+      !k.said && tt > 0.2 && ((k.said = !0), o.radio && o.radio("Breacher is clear. Firing in three. Two. One.", 2));
+      for (let bt of [0.7, 1.2, 1.7, 1.95, 2.15]) k.beep < 5 && tt >= bt && [0.7, 1.2, 1.7, 1.95, 2.15][k.beep] === bt && (k.beep++, cinePlay("telegraph", { gain: 0.55, pitch: 1.3 + 0.12 * k.beep, jitter: 0 }));
+      // the four charges, a beat apart
+      for (; k.blast < 4 && tt >= T0 + k.blast * 0.17; k.blast++) {
+        let ix = [2, 3, 1, 0][k.blast],
+          p = T.legs[ix];
+        try {
+          (i.fx.explosion(p, 2.4), i.fx.smoke(p, { size: 3.2, life: 4.5, color: SAND, count: 4, rise: 0.9 }), i.fx.debris(p, { mat: "steel_worn", count: 14, speed: 9, size: 0.09 }));
+        } catch {}
+        let ob = s.objectives[ix];
+        (ob && ob.object && (ob.object.visible = !1), (k.shake = 1), (e.flash = 0.55));
+      }
+      // the fall: the frame turns over its east foot line, faster and faster; the mast lags, then snaps past
+      if (tc > 0) {
+        let th = FULL * Math.pow(u, 2.3),
+          after = tc - TF;
+        (u >= 1 && (th = FULL - 0.045 * Math.exp(-after * 5) * Math.abs(Math.sin(after * 9))),
+          (T.lower.rotation.z = -th),
+          (T.lower.position.y = -0.32 * Math.min(1, tc / 0.35)),
+          (T.mast.rotation.z = u < 1 ? 0.1 * Math.sin(Math.PI * u) : -0.25 * (1 - Math.exp(-after * 7))));
+        if (u < 1) {
+          ((k.spark -= P), (k.groan -= P));
+          k.spark <= 0 &&
+            ((k.spark = 0.09),
+            czA.set(3, 0.2, (Math.random() - 0.5) * 6),
+            a(i.fx, "sparks", czA, czB.set(-0.4, 1, 0).normalize(), 10),
+            Math.random() < 0.5 && a(i.fx, "dust", czA, czB.set(0, 1, 0), 2.2, SAND[0], SAND[1], SAND[2]));
+          k.groan <= 0 && ((k.groan = 0.8), cinePlay("container_bang", { pos: [3, 4, 0], ref: 30, gain: 0.55 + u * 0.4, pitch: 0.42 + u * 0.2, jitter: 0.05 }));
+        } else if (!k.hit) {
+          ((k.hit = !0), (k.shake = 1.7));
+          for (let q = 0; q < 9; q++) {
+            czA.set(4.5 + q * 1.9, 0.3, (Math.random() - 0.5) * 6.5);
+            try {
+              (i.fx.dust(czA, czB.set(0, 1, 0), 3.4, SAND[0], SAND[1], SAND[2]),
+                i.fx.smoke(czA, { size: 3.6 + Math.random() * 1.6, life: 5.5, color: SAND, count: 3, rise: 0.5, vel: czB.set((Math.random() - 0.5) * 3, 1.2, (Math.random() - 0.5) * 5) }),
+                q % 2 === 0 && i.fx.debris(czA, { mat: "steel_worn", count: 10, speed: 7, size: 0.1 }),
+                i.fx.sparks(czA, czB.set(0, 1, 0), 14));
+            } catch {}
+          }
+          (cinePlay("container_bang", { pos: [10, 1, 0], ref: 40, gain: 1, pitch: 0.55, jitter: 0 }),
+            cinePlay("container_bang", { pos: [16, 1, 0], ref: 40, gain: 0.9, pitch: 0.8, jitter: 0 }),
+            cinePlay("explosion", { pos: [9, 1, 0], ref: 40, gain: 0.8, pitch: 0.5, jitter: 0 }),
+            cinePlay("impact_metal", { pos: [12, 1, 0], ref: 30, gain: 1, pitch: 0.5, jitter: 0 }));
+        } else {
+          // dust keeps boiling off the wreck for a few seconds
+          k.puff -= P;
+          k.puff <= 0 && after < 3 && ((k.puff = 0.22), czA.set(5 + Math.random() * 14, 0.4, (Math.random() - 0.5) * 6), a(i.fx, "smoke", czA, { size: 3, life: 4, color: SAND, count: 1, rise: 0.4 }));
+        }
+      }
+      // camera: by the truck for the countdown, wide for the fall, low by the wreck after
+      let fov = 46,
+        ease = (x) => x * x * (3 - 2 * x);
+      if (tt < T0) {
+        let v = ease(Math.min(1, tt / T0));
+        (czA.set(-9.5 - v * 1.2, 1.3 + v * 0.2, 8.5 + v * 1), czB.set(1.5, 9, 0), (fov = 52));
+      } else if (tt < 7.5) {
+        let v = ease(Math.min(1, (tt - T0) / 5.2)),
+          f = ease(u);
+        (czA.set(-6 + v * 2.5, 8 - v * 0.8, 29 + v * 1.5), czB.set(3 + f * 6, 8 - f * 5, 0), (fov = 54));
+      } else {
+        let v = ease(Math.min(1, (tt - 7.5) / 5));
+        (czA.set(17.4 + v * 1.2, 1.5 + v * 0.3, 8.6 + v * 1), czB.set(10 - v, 2.4, 0), (fov = 47));
+      }
+      k.shake = Math.max(0, k.shake - P * 1.5);
+      let sh = k.shake * k.shake * 0.22;
+      (cam.position.set(czA.x + (Math.random() - 0.5) * sh, czA.y + (Math.random() - 0.5) * sh, czA.z + (Math.random() - 0.5) * sh),
+        cam.lookAt(czB),
+        (cam.rotation.z += (Math.random() - 0.5) * sh * 0.06),
+        k.fov !== fov && ((k.fov = fov), (cam.fov = fov), cam.updateProjectionMatrix()));
+      // then the debrief, over the wreck
+      tt > 9.6 &&
+        !k.shown &&
+        ((k.shown = !0), i.events.emit("extraction:reached", {}), o.radio && o.radio(_l.done, 2.8), l.show("complete"), a(i.audio, "setIntensity", 0.15));
     }
     function B(P) {
       switch (((u += P), _.state)) {
@@ -39696,6 +39911,8 @@ vObjP = position; vONrm = normal; vWNrm = normalize(mat3(modelMatrix) * normal);
               (l.show("dead"), a(i.audio, "setIntensity", 0.15)),
             !0
           );
+        case "demo":
+          return (cz.hold || cine(P), !1);
         case "complete":
           return (
             (e.fade = kn(e.fade || 0, 0.72, 0.9, P)),
